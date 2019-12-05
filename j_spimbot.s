@@ -58,7 +58,11 @@ completed_request:   .half 0:1
 last_powerup_check:  .word 0:1  #holds the cycle of the last update to the powerup map
 powerup_map:         .word 0:2  #holds length and a pointer to an array of power ups
 target_pos:          .word 0:2  #holds x and y position
-    
+
+###### Reserved for the Given Functions ########
+
+
+	
 .text
 main:
 	# Construct interrupt mask
@@ -71,69 +75,208 @@ main:
     #if s0 is set to 0 then we have a pathing target
 
 
-    li	$t1, 1
-    sw  $t1, SWITCH_MODE($0)         #paint mode
+	li  $t1, 1
+	sw  $t1, SWITCH_MODE($0)         #paint mode
     
-	li	$t1, 10
-	sw	$t1, VELOCITY($0)
+	li  $t1, 10
+	sw  $t1, VELOCITY($0)
 	
 	#This is going to need to See how many buckets of paint are left and then request a puzzle.
 	#$t1 is the number of paint buckets we got
-	li	$t3, 1
-    sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
+	li  $t3, 1
+	sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
 
-    lw  $t1, GET_TIMER($0)              #gets cycle number  
-    sw  $t1, last_powerup_check($0)     #store 0 to this.
+	lw  $t1, GET_TIMER($0)              #gets cycle number  
+	sw  $t1, last_powerup_check($0)     #store current cycle number to this.
 
-    li  $t3, powerup_map
-    sw  $t3, GET_POWERUP_MAP($0)        #get initial powerup map
+	la  $t3, powerup_map
+	sw  $t3, GET_POWERUP_MAP($0)        #get initial powerup map
     
 bot_loop:
 
-#check if we have enough paint
-	lw	$t1, GET_PAINT_BUCKETS($0)	    #does what it says.
-	add	$t2, $0, 10			            #load 10 into $t2	
-	bgt	$t1, $t2, end_check_for_paint     #branch if we have enough paint > 10    
-    lw  $t3, completed_request($0)      #check if the puzzle is completed
+#check if we have enough paint #########################################################################
+	lw	$t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
+	add	$t2, $0, 10			    	#load 10 into $t2	
+	bgt	$t1, $t2, end_check_for_paint     	#branch if we have enough paint > 10    
+	lw      $t3, completed_request($0)      	#check if the puzzle is completed
     
-	beq	$t3, $0, end_check_for_paint   	#branch if puzzle is not completed. So it does not request more puzzles
-    sw  $0, completed_request($0)       #set request to incomplete
-	la	$t1, puzzle			            #load puzzle address into $t1
-	sw	$t1, REQUEST_PUZZLE($0)		    #request puzzle with this address
+	beq	$t3, $0, end_check_for_paint   		#branch if puzzle is not completed. So it does not request more puzzles
+	sw      $0, completed_request($0)       	#set request to incomplete
+	la	$t1, puzzle			        #load puzzle address into $t1
+	sw	$t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
 
+	
 end_check_for_paint:
+#this finds the closest powerup and paths towards it. ##################################################
+	lw  	$t1, GET_TIMER($0)              #gets current cycle number
+	li  	$t0, CHECK_POWERUP_MAP          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
+	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
+	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-#this finds the closest powerup and paths towards it.
-    lw  $t1, GET_TIMER($0)              #gets current cycle number
-    li  $t0, CHECK_POWERUP_MAP          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
-    lw  $t2, last_powerup_check($0)     #gets the cycle number of the last update
-    add $t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
+	blt 	$t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
-    blt $t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
-
-    sw  $t1, last_powerup_check($0)     #stores the current cycle in it
-    li  $a0, powerup_map    
-    sw  $a0, GET_POWERUP_MAP($0)        #get initial powerup map
+	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
+	la  	$a0, powerup_map    
+	sw  	$a0, GET_POWERUP_MAP($0)        #get initial powerup map
     
-    jal get_closest_powerup
+	jal 	get_closest_powerup
 
-    li  $t0, -1                         #if get_closest_powerup return -1 == x, then no powerup was found
-    beq $t0, $v0, end_check_for_powerup_map     #if no powerup is found, then skip this part 
+	li  	$t0, -1 		        #if get_closest_powerup return -1 == x, then no powerup was found
+	beq 	$t0, $v0, set_target_null    	#if no powerup is found, then skip this part 
     
-    la  $t0, target_pos     
-    sw  $v0, 0($t0)                     #set the current target as the closest powerup
-    sw  $v1, 4($t0)
-    mv  $s0, $0                         #signal that we have found a target
-    
+	la  	$t0, target_pos     
+	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
+	sw	$v1, 4($t0)
+	add	$s0, $0, $0                     #signal that we have found a target
+	j	end_check_for_powerup_map
+set_target_null:
+	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
+
+	
 end_check_for_powerup_map:
-    
-    j   continue_bot_loop
-continue_bot_loop: 
-	j	bot_loop
+	#This is where the next check in the game loop should go. ######################################	
+
+	j   	bot_loop
     
     
 	jr $ra
 
+
+
+
+##################################################################################
+# Given Functions ################################################################
+##################################################################################
+.data
+three:  .float  3.0
+five:   .float  5.0
+PI:     .float  3.141592
+F180:   .float  180.0
+
+
+.text
+# -----------------------------------------------------------------------
+# euclidean_dist - computes sqrt(x^2 + y^2)
+# $a0 - x
+# $a1 - y
+# returns the distance
+# -----------------------------------------------------------------------
+euclidean_dist:
+        mul	$a0, $a0, $a0	            # x^2
+        mul	$a1, $a1, $a1	            # y^2
+        add	$v0, $a0, $a1	            # x^2 + y^2
+        mtc1	$v0, $f0
+        cvt.s.w	$f0, $f0	            # float(x^2 + y^2)
+        sqrt.s	$f0, $f0	            # sqrt(x^2 + y^2)
+        cvt.w.s	$f0, $f0	            # int(sqrt(...))
+        mfc1	$v0, $f0
+        jr	$ra
+
+
+# -----------------------------------------------------------------------
+# sb_arctan - computes the arctangent of y / x
+# $a0 - x
+# $a1 - y
+# returns the arctangent
+# -----------------------------------------------------------------------
+sb_arctan:
+	li	$v0, 0		# angle = 0;
+	abs	$t0, $a0	# get absolute values
+	abs	$t1, $a1
+	ble	$t1, $t0, no_TURN_90
+	## if (abs(y) > abs(x)) { rotate 90 degrees }
+	move	$t0, $a1	# int temp = y;
+	neg	$a1, $a0	# y = -x;
+	move	$a0, $t0	# x = temp;
+	li	$v0, 90		# angle = 90;
+no_TURN_90:
+	bgez	$a0, pos_x 	# skip if (x >= 0)
+	## if (x < 0)
+	add	$v0, $v0, 180	# angle += 180;
+pos_x:
+	mtc1	$a0, $f0
+	mtc1	$a1, $f1
+	cvt.s.w $f0, $f0	# convert from ints to floats
+	cvt.s.w $f1, $f1
+	div.s	$f0, $f1, $f0	# float v = (float) y / (float) x;
+	mul.s	$f1, $f0, $f0	# v^^2
+	mul.s	$f2, $f1, $f0	# v^^3
+	l.s	$f3, three	# load 3.0
+	div.s 	$f3, $f2, $f3	# v^^3/3
+	sub.s	$f6, $f0, $f3	# v - v^^3/3
+	mul.s	$f4, $f1, $f2	# v^^5
+	l.s	$f5, five	# load 5.0
+	div.s 	$f5, $f4, $f5	# v^^5/5
+	add.s	$f6, $f6, $f5	# value = v - v^^3/3 + v^^5/5
+	l.s	$f8, PI		# load PI
+	div.s	$f6, $f6, $f8	# value / PI
+	l.s	$f7, F180	# load 180.0
+	mul.s	$f6, $f6, $f7	# 180.0 * value / PI
+	cvt.w.s $f6, $f6	# convert "delta" back to integer
+	mfc1	$t0, $f6
+	add	$v0, $v0, $t0	# angle += delta
+	jr 	$ra
+
+
+	
+##################################################################################
+# My Functions ###################################################################
+##################################################################################
+# No Arguments
+# v0 = x_pos, v1 = y_pos	
+# this would benefit from using more registers instead of memory access.
+# It doesn't run very many iterations of the inner loop so it probably would not speed up that much with SIMD	
+	
+get_closest_powerup:
+	sub	$sp, $sp, 4
+	sw	$ra, 0($sp)
+	
+	la	$t0, powerup_map	#load the power up map pointer
+	lw	$t1, 0($t0)		#get the number of powerups
+	lw	$t2, 4($t0)		#load the pointer to the powerups array
+
+	li 	$t3, 0			#t3 is the index in the array.
+	li	$t6, 0xFFFFFFFF		#this is the distance to the closest powerup
+	
+iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
+	bge	$t3, $t1, end_iterate_over_powerups
+
+	lhu	$t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
+	lhu	$t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
+
+	move	$a0, $t4
+	move	$a1, $t5
+
+	#im gunna do what called a pro-gamer move and not save my temporaries
+	jal	euclidean_dist
+	
+	blt	$t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
+	move	$t6, $v0			#set the smallest distance.
+	move	$t7, $t2			#record the pointer of the powerup for later use.
+
+dont_set_min_dist:	
+	add	$t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
+	add	$t3, $t3, 1
+	j	iterate_over_powerups
+	
+end_iterate_over_powerups:	
+	lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
+	lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
+
+	lw	$ra, 0($sp)
+	add	$sp, $sp, 4
+	jr	$ra
+
+
+
+
+
+
+
+
+
+
+######### Interupts ############################################	
 .kdata
 chunkIH:    .space 32
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
@@ -181,7 +324,7 @@ interrupt_dispatch:            # Interrupt:
 bonk_interrupt:
 	sw 	$0, BONK_ACK
 
-    add $t0, $0, 1
+	add $t0, $0, 1
 	sw  $t0, SWITCH_MODE($0)         #paint mode 
 	li	$t0, 67
 	sw	$t0, ANGLE($0)
@@ -195,7 +338,7 @@ bonk_interrupt:
 	j       interrupt_dispatch    # see if other interrupts are waiting
 
 request_puzzle_interrupt:
-    li	$t0, 69420
+	li	$t0, 69420
 	sw 	$t0, REQUEST_PUZZLE_ACK($0)
 
 	
@@ -211,8 +354,8 @@ request_puzzle_interrupt:
 	jal 	solve_puzzle 
 	sw	$a3, SUBMIT_SOLUTION($0)	#submit puzzle
 
-    li  $t3, 1
-    sw  $t3, completed_request($0)      #set the puzzle to completed
+	li  $t3, 1
+	sw  $t3, completed_request($0)      #set the puzzle to completed
 	j	interrupt_dispatch
     
 timer_interrupt:
@@ -242,16 +385,7 @@ done:
     eret
 
 
-
-
-
-
-
-
-
-
-
-
+	
 # Given Puzzle Code ################################################################################################################################################
 # bool solve(unsigned short *current_board, unsigned row, unsigned col, Puzzle* puzzle) {
 #     if (row >= GRIDSIZE || col >= GRIDSIZE) {
