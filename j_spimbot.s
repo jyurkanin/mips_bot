@@ -1,5 +1,17 @@
 # This is the only file that will be considered for grading
 
+    #struct ArenaPowerUp{
+    #   unsigned short x; 2
+    #   unsigned short y; 2
+    #   unsigned activation_timestamp; 4
+    #   PowerUpType powerUpType; 1 + 3padding
+    #}; 12 bytes total
+    #
+    #struct ArenaPowerupMap{
+    #   unsigned length;    4
+    #   ArenaPowerUp powerups[NUM_POWERUP]; 4 + 4 = 8
+    #};
+    
 .data
 # syscall constants
 PRINT_STRING            = 4
@@ -34,14 +46,18 @@ SWITCH_MODE             = 0xffff00f0
 
 ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
+
+CHECK_POWERUP_MAP       = 0x100
     
     
 ### Puzzle
 GRIDSIZE = 8
-puzzle:      .half 0:164              
-heap:        .half 0:4096
-completed_request: .half 0:1  
-last_powerup_check: .word 0:1  #holds the cycle of the last update to the powerup map
+puzzle:              .half 0:164              
+heap:                .half 0:4096
+completed_request:   .half 0:1  
+last_powerup_check:  .word 0:1  #holds the cycle of the last update to the powerup map
+powerup_map:         .word 0:2  #holds length and a pointer to an array of power ups
+target_pos:          .word 0:2  #holds x and y position
     
 .text
 main:
@@ -51,6 +67,8 @@ main:
 	or      $t4, $t4, REQUEST_PUZZLE_INT_MASK           # puzzle interrupt bit
 	or      $t4, $t4, 1 # global enable
 	mtc0    $t4, $12
+
+    #if s0 is set to 0 then we have a pathing target
 
 
     li	$t1, 1
@@ -63,27 +81,53 @@ main:
 	#$t1 is the number of paint buckets we got
 	li	$t3, 1
     sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
+
+    lw  $t1, GET_TIMER($0)              #gets cycle number  
+    sw  $t1, last_powerup_check($0)     #store 0 to this.
+
+    li  $t3, powerup_map
+    sw  $t3, GET_POWERUP_MAP($0)        #get initial powerup map
     
 bot_loop:
-    lw  $t1, GET_TIMER($0)              #gets cycle number
-    
-    
+
+#check if we have enough paint
 	lw	$t1, GET_PAINT_BUCKETS($0)	    #does what it says.
-	add	$t2, $0, 10			            #load 10 into $t2
-	
-	bgt	$t1, $t2, end_check_for_paint   #branch if we have enough paint > 10
-    
+	add	$t2, $0, 10			            #load 10 into $t2	
+	bgt	$t1, $t2, end_check_for_paint     #branch if we have enough paint > 10    
     lw  $t3, completed_request($0)      #check if the puzzle is completed
     
-	beq	$t3, $0, end_check_for_paint	#branch if puzzle is not completed. So it does not request more puzzles
+	beq	$t3, $0, end_check_for_paint   	#branch if puzzle is not completed. So it does not request more puzzles
     sw  $0, completed_request($0)       #set request to incomplete
 	la	$t1, puzzle			            #load puzzle address into $t1
 	sw	$t1, REQUEST_PUZZLE($0)		    #request puzzle with this address
-    
-end_check_for_paint: #start of section that does pathfinding to the closest powerup
 
+end_check_for_paint:
 
+#this finds the closest powerup and paths towards it.
+    lw  $t1, GET_TIMER($0)              #gets current cycle number
+    li  $t0, CHECK_POWERUP_MAP          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
+    lw  $t2, last_powerup_check($0)     #gets the cycle number of the last update
+    add $t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
+
+    blt $t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+
+    sw  $t1, last_powerup_check($0)     #stores the current cycle in it
+    li  $a0, powerup_map    
+    sw  $a0, GET_POWERUP_MAP($0)        #get initial powerup map
     
+    jal get_closest_powerup
+
+    li  $t0, -1                         #if get_closest_powerup return -1 == x, then no powerup was found
+    beq $t0, $v0, end_check_for_powerup_map     #if no powerup is found, then skip this part 
+    
+    la  $t0, target_pos     
+    sw  $v0, 0($t0)                     #set the current target as the closest powerup
+    sw  $v1, 4($t0)
+    mv  $s0, $0                         #signal that we have found a target
+    
+end_check_for_powerup_map:
+    
+    j   continue_bot_loop
 continue_bot_loop: 
 	j	bot_loop
     

@@ -1,0 +1,3 @@
+Step 1. Add a timer at the end of the loop.
+Step 2. Request a new powerup map every 100 loops.
+Step 3. 
