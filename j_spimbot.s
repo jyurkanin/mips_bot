@@ -47,7 +47,7 @@ SWITCH_MODE             = 0xffff00f0
 ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
 
-CHECK_POWERUP_MAP       = 0x100
+CHECK_POWERUP_MAP_FREQUENCY  = 0x100
     
     
 ### Puzzle
@@ -94,26 +94,35 @@ main:
     
 bot_loop:
 
+#Check if we have a target acquired#######################################################
+    bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
+    
+    
+    j   check_powerup_map               #skip the paint check and goto the powerup_map_check to see if the powerup is still here.
+    
+check_paint_supply:
 #check if we have enough paint #########################################################################
 	lw	    $t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
-	add	    $t2, $0, 10			    	#load 10 into $t2	
-	bgt	    $t1, $t2, end_check_for_paint     	#branch if we have enough paint > 10    
+	add	    $t2, $0, 0			    	#load 0 into $t2	
+	bgt	    $t1, $t2, check_powerup_map     	#branch if we have enough paint > 0    
 	lw      $t3, completed_request($0)      	#check if the puzzle is completed
+
+    sw      $0, VELOCITY($0)                    #set velocity to 0 since we have no paint left
     
-	beq	    $t3, $0, end_check_for_paint   		#branch if puzzle is not completed. So it does not request more puzzles
+	beq	    $t3, $0, check_powerup_map   		#branch if puzzle is not completed. So it does not request more puzzles
 	sw      $0, completed_request($0)       	#set request to incomplete
-	la	    $t1, puzzle			        #load puzzle address into $t1
+	la	    $t1, puzzle		        	        #load puzzle address into $t1
 	sw	    $t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
 
 	
-end_check_for_paint:
+check_powerup_map:
 #this finds the closest powerup and paths towards it. ##################################################
 	lw  	$t1, GET_TIMER($0)              #gets current cycle number
-	li  	$t0, CHECK_POWERUP_MAP          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
+	li  	$t0, CHECK_POWERUP_MAP_FREQUENCY          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
 	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
 	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-	bgt 	$t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+	bgt 	$t1, $t0, check_next_thing #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
 	la  	$a0, powerup_map    
@@ -128,14 +137,15 @@ end_check_for_paint:
 	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
 	sw	    $v1, 4($t0)
 	add	    $s0, $0, $0                     #signal that we have found a target
-	j	    end_check_for_powerup_map
+	j	    check_next_thing
 set_target_null:
 	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
 
 	
-end_check_for_powerup_map:
-	#This is where the next check in the game loop should go. ######################################	
-
+check_next_thing:
+	# Check somthing here #####################################
+    
+    
 	j   	bot_loop
     
     
@@ -249,7 +259,7 @@ iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
 	#im gunna do what called a pro-gamer move and not save my temporaries
 	jal	euclidean_dist
 	
-	bltu	    $t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
+	bltu	$t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
 	move	$t6, $v0			#set the smallest distance.
 	move	$t7, $t2			#record the pointer of the powerup for later use.
 
