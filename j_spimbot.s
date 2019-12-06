@@ -95,15 +95,15 @@ main:
 bot_loop:
 
 #check if we have enough paint #########################################################################
-	lw	$t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
-	add	$t2, $0, 10			    	#load 10 into $t2	
-	bgt	$t1, $t2, end_check_for_paint     	#branch if we have enough paint > 10    
+	lw	    $t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
+	add	    $t2, $0, 10			    	#load 10 into $t2	
+	bgt	    $t1, $t2, end_check_for_paint     	#branch if we have enough paint > 10    
 	lw      $t3, completed_request($0)      	#check if the puzzle is completed
     
-	beq	$t3, $0, end_check_for_paint   		#branch if puzzle is not completed. So it does not request more puzzles
+	beq	    $t3, $0, end_check_for_paint   		#branch if puzzle is not completed. So it does not request more puzzles
 	sw      $0, completed_request($0)       	#set request to incomplete
-	la	$t1, puzzle			        #load puzzle address into $t1
-	sw	$t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
+	la	    $t1, puzzle			        #load puzzle address into $t1
+	sw	    $t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
 
 	
 end_check_for_paint:
@@ -113,7 +113,7 @@ end_check_for_paint:
 	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
 	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-	blt 	$t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+	bgt 	$t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
 	la  	$a0, powerup_map    
@@ -126,9 +126,9 @@ end_check_for_paint:
     
 	la  	$t0, target_pos     
 	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
-	sw	$v1, 4($t0)
-	add	$s0, $0, $0                     #signal that we have found a target
-	j	end_check_for_powerup_map
+	sw	    $v1, 4($t0)
+	add	    $s0, $0, $0                     #signal that we have found a target
+	j	    end_check_for_powerup_map
 set_target_null:
 	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
 
@@ -222,7 +222,7 @@ pos_x:
 ##################################################################################
 # My Functions ###################################################################
 ##################################################################################
-# No Arguments
+# Pointer to the powerup map
 # v0 = x_pos, v1 = y_pos	
 # this would benefit from using more registers instead of memory access.
 # It doesn't run very many iterations of the inner loop so it probably would not speed up that much with SIMD	
@@ -231,18 +231,17 @@ get_closest_powerup:
 	sub	$sp, $sp, 4
 	sw	$ra, 0($sp)
 	
-	la	$t0, powerup_map	#load the power up map pointer
-	lw	$t1, 0($t0)		#get the number of powerups
-	lw	$t2, 4($t0)		#load the pointer to the powerups array
+	lw	$t1, 0($a0)		#get the number of powerups
+	add	$t2, $a0, 4		#load the pointer to the powerups array
 
 	li 	$t3, 0			#t3 is the index in the array.
 	li	$t6, 0xFFFFFFFF		#this is the distance to the closest powerup
 	
 iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
-	bge	$t3, $t1, end_iterate_over_powerups
+	bge	    $t3, $t1, end_iterate_over_powerups
 
-	lhu	$t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
-	lhu	$t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
+	lhu	    $t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
+	lhu	    $t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
 
 	move	$a0, $t4
 	move	$a1, $t5
@@ -250,19 +249,25 @@ iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
 	#im gunna do what called a pro-gamer move and not save my temporaries
 	jal	euclidean_dist
 	
-	blt	$t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
+	bltu	    $t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
 	move	$t6, $v0			#set the smallest distance.
 	move	$t7, $t2			#record the pointer of the powerup for later use.
 
 dont_set_min_dist:	
-	add	$t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
-	add	$t3, $t3, 1
-	j	iterate_over_powerups
+	add	    $t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
+	add	    $t3, $t3, 1
+	j	    iterate_over_powerups
 	
-end_iterate_over_powerups:	
+end_iterate_over_powerups:
+
+    li  $t8, 0xFFFFFFFF
+    li  $v0, -1
+    li  $v1, -1
+    beq $t6, $t8, got_no_powerups
+    
 	lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
 	lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
-
+got_no_powerups:
 	lw	$ra, 0($sp)
 	add	$sp, $sp, 4
 	jr	$ra
