@@ -1,3 +1,41 @@
-Step 1. Add a timer at the end of the loop.
-Step 2. Request a new powerup map every 100 loops.
-Step 3. 
+if(we are on our own tile){
+      set sprint
+}
+else{ //tile is empty
+      set paint
+}
+
+if(got target){
+       path to target
+}
+
+if(paint > 0){ //we have enough paint
+         if(not on top of your own square){
+               set_paint_mode
+         }
+}
+else {
+     request puzzle
+     if(!got_target){
+        set velocity to zero
+     }   
+}
+
+if(time since last map update > 128){
+        get new powerup map
+        get closest powerup
+        set target closest powerup
+
+        get new arena map
+}
+
+
+
+
+
+
+void path_to_target(int x , int y){
+     set_sprint()
+
+     
+}

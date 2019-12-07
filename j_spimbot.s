@@ -58,8 +58,9 @@ completed_request:   .half 0:1
 last_powerup_check:  .word 0:1  #holds the cycle of the last update to the powerup map
 powerup_map:         .word 0:2  #holds length and a pointer to an array of power ups
 target_pos:          .word 0:2  #holds x and y position
+my_bot_color:        .word 0:1  #this is the color of our team
+arena_map:           .half 0:900
 
-###### Reserved for the Given Functions ########
 
 
 	
@@ -72,49 +73,93 @@ main:
 	or      $t4, $t4, 1 # global enable
 	mtc0    $t4, $12
 
-    #if s0 is set to 0 then we have a pathing target
+        #if s0 is set to 0 then we have a pathing target
 
 
-	li  $t1, 1
-	sw  $t1, SWITCH_MODE($0)         #paint mode
+	li      $t1, 1
+	sw      $t1, SWITCH_MODE($0)         #paint mode
     
-	li  $t1, 10
-	sw  $t1, VELOCITY($0)
+	li      $t1, 10
+	sw      $t1, VELOCITY($0)
 	
 	#This is going to need to See how many buckets of paint are left and then request a puzzle.
 	#$t1 is the number of paint buckets we got
-	li  $t3, 1
-	sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
+	li      $t3, 1
+	sw      $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
 
-	lw  $t1, GET_TIMER($0)              #gets cycle number  
-	sw  $t1, last_powerup_check($0)     #store current cycle number to this.
+	lw      $t1, GET_TIMER($0)              #gets cycle number  
+	sw      $t1, last_powerup_check($0)     #store current cycle number to this.
 
-	la  $t3, powerup_map
-	sw  $t3, GET_POWERUP_MAP($0)        #get initial powerup map
-    
+	la      $t3, powerup_map
+	sw      $t3, GET_POWERUP_MAP($0)        #get initial powerup map
+
+        la      $a0, arena_map
+        sw      $a0, GET_ARENA_MAP($0)
+
+        li      $s0, 0xDEADBEEF         #$s0 is a flag that says whether or not we have a valid target
+        li      $s1, 0                  #$s1 holds the color the tile we are currently on
+        
+        #$s2 is the color of our robot. Also we theres a memory location for it.
+        #this bit gets the color of the mybot
+        lw      $t0, BOT_X($0)          #determine if we are in the top left or bottom right
+        bne     $t0, 5, we_are_the_bottom_right
+        move    $s2, $0
+        sw      $s2, my_bot_color($0)    
+        j       bot_loop
+we_are_the_bottom_right:
+        li      $s2, 1
+        sw      $s2, my_bot_color($0)
+        
+        
 bot_loop:
+        
+        lw      $a0, BOT_X($0)              #This block just gets the current color we are standing on
+        lw      $a1, BOT_Y($0)
+        jal     get_arena_map_index
+        and     $s1, $v0, 0xFF00            #get the upper byte which is color
 
+        
+        #if(the tile we are on is our color)
+        bne     $s2, $s1, else_not_my_tile
+        sw      $0, SWITCH_MODE($0)     #Tile is our color so sprint
+        j       end_color_switch
+else_not_my_tile:
+        li      $t0, 1
+        sw      $t0, SWITCH_MODE($0)     #Tile is enemy color so paint
+
+end_color_switch:
+        
+        
 #Check if we have a target acquired#######################################################
-    bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
-    
-    
-    j   check_powerup_map               #skip the paint check and goto the powerup_map_check to see if the powerup is still here.
-    
+        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
+
+        la  $t0, target_pos
+        lw  $a0, 0($t0)
+        lw  $a1, 4($t0) 
+        jal path_to_target                  #pathing subroutine
+            
 check_paint_supply:
 #check if we have enough paint #########################################################################
-	lw	    $t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
-	add	    $t2, $0, 0			    	#load 0 into $t2	
-	bgt	    $t1, $t2, check_powerup_map     	#branch if we have enough paint > 0    
+	lw	$t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
+	add	$t2, $0, 0			    	#load 0 into $t2	
+	bgt	$t1, $t2, check_powerup_map           	#if(paint > 0) branch if we have enough paint > 0
 	lw      $t3, completed_request($0)      	#check if the puzzle is completed
+        
+        li      $t0, 1
+        sw      $t0, SWITCH_MODE($0)
+        
+        beq     $s0, $0, have_target_dont_stop          #when $s0 is 0, we have a target
+#        sw      $0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
+have_target_dont_stop:
+        
+	beq	$t3, $0, check_powerup_map   		#branch if puzzle is not completed. So it does not request more puzzles
+	sw      $0,  completed_request($0)       	#set request to incomplete
+	la	$t1, puzzle		                #load puzzle address into $t1
+	sw	$t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
+        j       check_powerup_map
 
-    sw      $0, VELOCITY($0)                    #set velocity to 0 since we have no paint left
-    
-	beq	    $t3, $0, check_powerup_map   		#branch if puzzle is not completed. So it does not request more puzzles
-	sw      $0, completed_request($0)       	#set request to incomplete
-	la	    $t1, puzzle		        	        #load puzzle address into $t1
-	sw	    $t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
-
-	
+        
+        
 check_powerup_map:
 #this finds the closest powerup and paths towards it. ##################################################
 	lw  	$t1, GET_TIMER($0)              #gets current cycle number
@@ -122,11 +167,14 @@ check_powerup_map:
 	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
 	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-	bgt 	$t1, $t0, check_next_thing #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+	bgt 	$t1, $t0, check_next_thing      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
 	la  	$a0, powerup_map    
 	sw  	$a0, GET_POWERUP_MAP($0)        #get initial powerup map
+
+        la      $a0, arena_map
+        sw      $a0, GET_ARENA_MAP($0)
     
 	jal 	get_closest_powerup
 
@@ -135,9 +183,9 @@ check_powerup_map:
     
 	la  	$t0, target_pos     
 	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
-	sw	    $v1, 4($t0)
-	add	    $s0, $0, $0                     #signal that we have found a target
-	j	    check_next_thing
+	sw	$v1, 4($t0)
+	add	$s0, $0, $0                     #signal that we have found a target
+	j	check_next_thing
 set_target_null:
 	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
 
@@ -270,25 +318,40 @@ dont_set_min_dist:
 	
 end_iterate_over_powerups:
 
-    li  $t8, 0xFFFFFFFF
-    li  $v0, -1
-    li  $v1, -1
-    beq $t6, $t8, got_no_powerups
-    
-	lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
-	lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
+        li  $t8, 0xFFFFFFFF
+        li  $v0, -1
+        li  $v1, -1
+        beq $t6, $t8, got_no_powerups
+        lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
+        lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
 got_no_powerups:
-	lw	$ra, 0($sp)
+        lw	$ra, 0($sp)
 	add	$sp, $sp, 4
 	jr	$ra
 
 
+######### pathing function #####################################
+    # $a0 is x position
+    # $a1 is y position
+    # returns nothing but it drives to the target
+path_to_target:
+        
+        
+        jr      $ra
 
-
-
-
-
-
+######### get_arena_map_index ####################################
+# just does return arena_map[a0][a1]
+get_arena_map_index:
+        div     $t2, $a0, 10
+        div     $t3, $a1, 10
+        la      $t0, arena_map
+        mul     $t1, $t2, 30            #30*a0
+        add     $t1, $t1, $t3           #30*a0 + a1
+        mul     $t1, $t1, 2             #2*((30*a0) + a1)
+        add     $t1, $t1, $t0           #(&arena_map) + 2*((30*a0) + a1)
+        
+        lh      $v0, 0($t1)
+        jr      $ra
 
 
 ######### Interupts ############################################	
@@ -319,22 +382,22 @@ interrupt_handler:
 
 
 interrupt_dispatch:            # Interrupt:
-    mfc0       $k0, $13        # Get Cause register, again
-    beq        $k0, 0, done        # handled all outstanding interrupts
+        mfc0       $k0, $13        # Get Cause register, again
+        beq        $k0, 0, done        # handled all outstanding interrupts
+        
+        and        $a0, $k0, BONK_INT_MASK    # is there a bonk interrupt?
+        bne        $a0, 0, bonk_interrupt
 
-    and        $a0, $k0, BONK_INT_MASK    # is there a bonk interrupt?
-    bne        $a0, 0, bonk_interrupt
+        and        $a0, $k0, TIMER_INT_MASK    # is there a timer interrupt?
+        bne        $a0, 0, timer_interrupt
 
-    and        $a0, $k0, TIMER_INT_MASK    # is there a timer interrupt?
-    bne        $a0, 0, timer_interrupt
+        and     $a0, $k0, REQUEST_PUZZLE_INT_MASK
+        bne     $a0, 0, request_puzzle_interrupt
 
-    and     $a0, $k0, REQUEST_PUZZLE_INT_MASK
-    bne     $a0, 0, request_puzzle_interrupt
-
-    li        $v0, PRINT_STRING    # Unhandled interrupt types
-    la        $a0, unhandled_str
-    syscall
-    j    done
+        li        $v0, PRINT_STRING    # Unhandled interrupt types
+        la        $a0, unhandled_str
+        syscall
+        j    done
 
 bonk_interrupt:
 	sw 	$0, BONK_ACK
@@ -374,30 +437,30 @@ request_puzzle_interrupt:
 	j	interrupt_dispatch
     
 timer_interrupt:
-    sw      $0, TIMER_ACK
-    #Fill in your code here
-    j        interrupt_dispatch    # see if other interrupts are waiting
+        sw      $0, TIMER_ACK
+        #Fill in your code here
+        j        interrupt_dispatch    # see if other interrupts are waiting
 
 non_intrpt:                # was some non-interrupt
-    li        $v0, PRINT_STRING
-    la        $a0, non_intrpt_str
-    syscall                # print out an error message
-    # fall through to done
+        li        $v0, PRINT_STRING
+        la        $a0, non_intrpt_str
+        syscall                # print out an error message
+        # fall through to done
 
 done:
-    la      $k0, chunkIH
-    lw      $a0, 0($k0)        # Restore saved registers
-    lw      $v0, 4($k0)
-    lw      $t0, 8($k0)
-    lw      $t1, 12($k0)
-    lw      $t2, 16($k0)
-    lw      $t3, 20($k0)
-    lw $t4, 24($k0)
-    lw $t5, 28($k0)
+        la      $k0, chunkIH
+        lw      $a0, 0($k0)        # Restore saved registers
+        lw      $v0, 4($k0)
+        lw      $t0, 8($k0)
+        lw      $t1, 12($k0)
+        lw      $t2, 16($k0)
+        lw      $t3, 20($k0)
+        lw      $t4, 24($k0)
+        lw      $t5, 28($k0)
 .set noat
-    move    $at, $k1        # Restore $at
+        move    $at, $k1        # Restore $at
 .set at
-    eret
+        eret
 
 
 	
