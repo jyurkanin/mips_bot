@@ -48,7 +48,8 @@ ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
 
 CHECK_POWERUP_MAP_FREQUENCY  = 0x100
-    
+BOT_VELOCITY            = 0xa
+        
     
 ### Puzzle
 GRIDSIZE = 8
@@ -80,7 +81,7 @@ main:
 	li      $t1, 1
 	sw      $t1, SWITCH_MODE($0)         #paint mode
     
-	li      $t1, 10
+	li      $t1, BOT_VELOCITY
 	sw      $t1, VELOCITY($0)
 	
 	#This is going to need to See how many buckets of paint are left and then request a puzzle.
@@ -120,24 +121,23 @@ bot_loop:
         and     $s1, $v0, 0xFF00            #get the upper byte which is color
 
         
-        #if(the tile we are on is our color)
-        bne     $s2, $s1, else_not_my_tile
+#        #if(the tile we are on is our color)
+#        bne     $s2, $s1, else_not_my_tile
 #        sw      $0, SWITCH_MODE($0)     #Tile is our color so sprint
-        j       end_color_switch
-else_not_my_tile:
-        li      $t0, 1
-        sw      $t0, SWITCH_MODE($0)     #Tile is enemy color or empty so paint
+#        j       end_color_switch
+#else_not_my_tile:
+#        li      $t0, 1
+#        sw      $t0, SWITCH_MODE($0)     #Tile is enemy color or empty so paint
 
 end_color_switch:
         
         
 #Check if we have a target acquired#######################################################
-#        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
-
-#        la  $t0, target_pos
-#        lw  $a0, 0($t0)
-#        lw  $a1, 4($t0) 
-#        jal path_to_target                  #pathing subroutine
+        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
+        la  $t0, target_pos
+        lw  $a0, 0($t0)
+        lw  $a1, 4($t0) 
+        jal path_to_target                  #pathing subroutine
             
 check_paint_supply:
 #check if we have enough paint #########################################################################
@@ -160,7 +160,7 @@ have_target_dont_stop:
         j       check_powerup_map
         
 we_got_enough_paint:
-        li      $t0, 10
+        li      $t0, BOT_VELOCITY
         sw      $t0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
         #Fall through to next
         
@@ -174,12 +174,13 @@ check_powerup_map:
 	bgt 	$t1, $t0, check_next_thing      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
+
+        la      $t0, arena_map                  #load the arena_map
+        sw      $t0, GET_ARENA_MAP($0)
+        
 	la  	$a0, powerup_map    
 	sw  	$a0, GET_POWERUP_MAP($0)        #get initial powerup map
 
-        la      $a0, arena_map
-        sw      $a0, GET_ARENA_MAP($0)
-    
 	jal 	get_closest_powerup
 
 	li  	$t0, -1 		        #if get_closest_powerup return -1 == x, then no powerup was found
@@ -195,7 +196,7 @@ set_target_null:
 
 	
 check_next_thing:
-	# Check somthing here #####################################
+	# Check something here #####################################
     
     
 	j   	bot_loop
@@ -223,7 +224,7 @@ F180:   .float  180.0
 # $a1 - y
 # returns the distance
 # -----------------------------------------------------------------------
-euclidean_dist:
+Euclidean_dist:
         mul	$a0, $a0, $a0	            # x^2
         mul	$a1, $a1, $a1	            # y^2
         add	$v0, $a0, $a1	            # x^2 + y^2
@@ -239,7 +240,7 @@ euclidean_dist:
 # sb_arctan - computes the arctangent of y / x
 # $a0 - x
 # $a1 - y
-# returns the arctangent
+# returns the arctangent as $f31
 # -----------------------------------------------------------------------
 sb_arctan:
 	li	$v0, 0		# angle = 0;
@@ -253,7 +254,7 @@ sb_arctan:
 	li	$v0, 90		# angle = 90;
 no_TURN_90:
 	bgez	$a0, pos_x 	# skip if (x >= 0)
-	## if (x < 0)
+	## If (x < 0)
 	add	$v0, $v0, 180	# angle += 180;
 pos_x:
 	mtc1	$a0, $f0
@@ -273,10 +274,13 @@ pos_x:
 	l.s	$f8, PI		# load PI
 	div.s	$f6, $f6, $f8	# value / PI
 	l.s	$f7, F180	# load 180.0
-	mul.s	$f6, $f6, $f7	# 180.0 * value / PI
-	cvt.w.s $f6, $f6	# convert "delta" back to integer
-	mfc1	$t0, $f6
-	add	$v0, $v0, $t0	# angle += delta
+	mul.s	$f31, $f6, $f7	# 180.0 * value / PI
+        #originally was mul.s $f6, $f6, $f7
+        #but I changed it to return a float.
+        
+#	cvt.w.s $f6, $f6	# convert "delta" back to integer
+#	mfc1	$t0, $f6
+#	add	$v0, $v0, $t0	# angle += delta
 	jr 	$ra
 
 
@@ -297,13 +301,13 @@ get_closest_powerup:
 	add	$t2, $a0, 4		#load the pointer to the powerups array
 
 	li 	$t3, 0			#t3 is the index in the array.
-	li	$t6, 0xFFFFFFFF		#this is the distance to the closest powerup
+	li	$t6, 0x00FFFFFF		#this is the distance to the closest powerup
 	
 iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
-	bge	    $t3, $t1, end_iterate_over_powerups
+	bge     $t3, $t1, end_iterate_over_powerups
 
-	lhu	    $t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
-	lhu	    $t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
+	lhu	$t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
+	lhu	$t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
 
 	move	$a0, $t4
 	move	$a1, $t5
@@ -316,16 +320,16 @@ iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
 	move	$t7, $t2			#record the pointer of the powerup for later use.
 
 dont_set_min_dist:	
-	add	    $t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
-	add	    $t3, $t3, 1
-	j	    iterate_over_powerups
+	add     $t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
+	add	$t3, $t3, 1
+	j	iterate_over_powerups
 	
 end_iterate_over_powerups:
 
-        li  $t8, 0xFFFFFFFF
-        li  $v0, -1
-        li  $v1, -1
-        beq $t6, $t8, got_no_powerups
+        li      $t8, 0x00FFFFFF
+        li      $v0, -1
+        li      $v1, -1
+        beq     $t6, $t8, got_no_powerups
         lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
         lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
 got_no_powerups:
@@ -343,6 +347,9 @@ path_to_target:
         
         jr      $ra
 
+
+
+        
 ######### get_arena_map_index ####################################
 # just does return arena_map[a0][a1]
 get_arena_map_index:
@@ -358,9 +365,131 @@ get_arena_map_index:
         jr      $ra
 
 
+## NOTICE:
+# Sin(x) and Cos(x) use $f0 to pass x as an argument
+# And they return $f31
+        
+######## sin(x) ##################################
+# sin (degrees) function with 3 terms in taylor expansion
+# return x - (x^3 / 6) + (x^5 / 120);
+.data
+
+SIN_C2:  .float  6.0
+SIN_C3:  .float  120.0
+
+.text        
+
+sin_degrees:
+#	li	$v0, 0		# angle = 0;
+#     	mtc1	$a0, $f0        # load argument
+#	cvt.s.w $f0, $f0	# convert from ints to floats
+#        sub     $sp, $sp, 36
+#        swc1    $f0, 0($sp)
+#        swc1    $f1, 4($sp)
+#        swc1    $f2, 8($sp)
+#        swc1    $f3, 12($sp)
+#        swc1    $f4, 16($sp)
+#        swc1    $f5, 20($sp)
+#        swc1    $f6, 24($sp)
+#        swc1    $f7, 28($sp)
+#        swc1    $f8, 32($sp)
+
+        
+        #Convert from deg to rad
+        l.s	$f8, PI		# load PI
+	mul.s	$f0, $f8, $f0	# PI * v
+	l.s	$f7, F180	# load 180.0
+	div.s	$f0, $f0, $f7	# PI * value / 180
+        
+	mul.s	$f1, $f0, $f0	# v^^2
+	mul.s	$f2, $f1, $f0	# v^^3
+        
+	l.s	$f3, SIN_C2	# load 3.0
+	div.s 	$f3, $f2, $f3	# v^^3/6
+	sub.s	$f6, $f0, $f3	# v - v^^3/6
+        
+	mul.s	$f4, $f1, $f2	# v^^5
+	l.s	$f5, SIN_C3     # load 120.0
+	div.s 	$f5, $f4, $f5	# v^^5/120.0
+	add.s	$f6, $f6, $f5	# value = v - v^^3/6 + v^^5/120
+        
+	cvt.w.s $f31, $f6	# convert value back to integer
+
+#        lwc1    $f0, 0($sp)
+#        lwc1    $f1, 4($sp)
+#        lwc1    $f2, 8($sp)
+#        lwc1    $f3, 12($sp)
+#        lwc1    $f4, 16($sp)
+#        lwc1    $f5, 20($sp)
+#        lwc1    $f6, 24($sp)
+#        lwc1    $f7, 28($sp)
+#        lwc1    $f8, 32($sp)
+#        add     $sp, $sp, 36
+	jr 	$ra
+
+
+######## cos(x) ##################################
+# cos (degrees) function with 3 terms in taylor expansion
+# return 1 - (x^2 / 2) + (x^5 / 24);
+.data
+
+COS_C1:  .float  1.0
+COS_C2:  .float  2.0
+COS_C3:  .float  24.0
+
+.text        
+
+cos_degrees:
+#        sub     $sp, $sp, 36
+#        swc1    $f0, 0($sp)
+#        swc1    $f1, 4($sp)
+#        swc1    $f2, 8($sp)
+#        swc1    $f3, 12($sp)
+#        swc1    $f4, 16($sp)
+#        swc1    $f5, 20($sp)
+#        swc1    $f6, 24($sp)
+#        swc1    $f7, 28($sp)
+#        swc1    $f8, 32($sp)
+        
+        #Convert from deg to rad
+        l.s	$f8, PI		# load PI
+	mul.s	$f0, $f8, $f0	# PI * v
+	l.s	$f7, F180	# load 180.0
+	div.s	$f0, $f0, $f7	# PI * value / 180
+
+        
+	mul.s	$f1, $f0, $f0	# v^^2
+	mul.s	$f2, $f1, $f1	# v^^4
+
+        l.s     $f0, COS_C1     # load 1.0
+	l.s	$f3, COS_C2	# load 2.0
+	div.s 	$f3, $f1, $f3	# v^^2/2
+	sub.s	$f6, $f0, $f3	# 1 - v^^2/2
+        
+	l.s	$f5, COS_C3     # load 24.0
+	div.s 	$f5, $f2, $f5	# v^^4/24.0
+	add.s	$f6, $f6, $f5	# value = 1 - v^^2/2 + v^^4/24
+        
+	cvt.w.s $f6, $f6	# convert value back to integer
+	mfc1	$f31, $f6       # move value to $v0
+        
+#        lwc1    $f0, 0($sp)
+#        lwc1    $f1, 4($sp)
+#        lwc1    $f2, 8($sp)
+#        lwc1    $f3, 12($sp)
+#        lwc1    $f4, 16($sp)
+#        lwc1    $f5, 20($sp)
+#        lwc1    $f6, 24($sp)
+#        lwc1    $f7, 28($sp)
+#        lwc1    $f8, 32($sp)
+#        add     $sp, $sp, 36
+	jr 	$ra
+
+        
+
 ######### Interupts ############################################	
 .kdata
-chunkIH:    .space 36
+chunkIH:    .space 48
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
 unhandled_str:    .asciiz "Unhandled interrupt type\n"
 .ktext 0x80000180
@@ -372,7 +501,7 @@ interrupt_handler:
         sw      $a0, 0($k0)        # Restore saved registers
         sw      $a1, 4($k0)        # Restore saved registers
         sw      $a2, 8($k0)        # Restore saved registers
-        sw      $a3, 12($k0)        # Restore saved registers
+        sw      $a3, 12($k0)       # Restore saved registers
         sw      $v0, 16($k0)
         sw      $t0, 20($k0)
         sw      $t1, 24($k0)
@@ -418,7 +547,7 @@ bonk_interrupt:
 	li	$t0, 0
 	sw	$t0, ANGLE_CONTROL($0)
 	
-	li	$t0, 10
+	li	$t0, BOT_VELOCITY
 	sw	$t0, VELOCITY($0)
 	
 	j       interrupt_dispatch    # see if other interrupts are waiting

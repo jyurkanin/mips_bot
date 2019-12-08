@@ -1,9 +1,15 @@
+/*
+ * Bad Idea. It was doing way too many switch_modes and wasting tons of paint.
+ *
+ 
 if(we are on our own tile){
       set sprint
 }
 else{ //tile is empty
       set paint
 }
+*/
+
 
 if(got target){
        path to target
@@ -33,9 +39,34 @@ if(time since last map update > 128){
 
 
 
-
-void path_to_target(int x , int y){
-     set_sprint()
-
+//Bug Pathing. Turn right to get around things.
+//bot velocity is either 0 or BOT_VELOCITY, a constant
+void path_to_target(int tx , int ty){
+     [pix_x, pix_y] = get_robot_position();
+     x = (10*x) + 5
+     y = (10*y) + 5
      
+     theta = atan(x - pix_x, y - pix_y);
+     set_angle_control_absolute();
+
+     hypot = euclidian_dist(x - pix_x, y - pix_y);
+     
+     
+     while(arena[tile_x][tile_y] == obstacle){
+         next_pix_x = x + BOT_VELOCITY*cos(theta)
+         next_pix_y = y + BOT_VELOCITY*sin(theta);
+         tile_x = next_pix_x / 10;
+         tile_y = next_pix_y / 10;
+         
+         theta += 30 //try a bunch of values.
+     }
 }
+
+
+float cos(float t){
+      return 1 - (x^2 / 2) + (x^4 / 24);
+}
+
+float sin(float t){
+      return x - (x^3 / 6) + (x^5 / 120);
+}     
