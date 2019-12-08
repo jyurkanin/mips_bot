@@ -47,19 +47,21 @@ void path_to_target(int tx , int ty){
      y = (10*y) + 5
      
      theta = atan(x - pix_x, y - pix_y);
-     set_angle_control_absolute();
-
-     hypot = euclidian_dist(x - pix_x, y - pix_y);
      
-     
-     while(arena[tile_x][tile_y] == obstacle){
-         next_pix_x = x + BOT_VELOCITY*cos(theta)
-         next_pix_y = y + BOT_VELOCITY*sin(theta);
+     do{
+         next_pix_x = pix_x + BOT_VELOCITY*cos(theta)
+         next_pix_y = pix_y + BOT_VELOCITY*sin(theta);
          tile_x = next_pix_x / 10;
          tile_y = next_pix_y / 10;
-         
-         theta += 30 //try a bunch of values.
-     }
+
+         if((arena[tile_x][tile_y] & 0x00FF)){
+             theta += 30 //try a bunch of values.
+             continue
+         }
+         else break
+     } while(1)
+     set_angle_control_absolute();
+     set_angle(theta)
 }
 
 

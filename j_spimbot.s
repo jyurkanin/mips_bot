@@ -197,12 +197,12 @@ set_target_null:
 	
 check_next_thing:
 	# Check something here #####################################
-    
-    
+        
+        
 	j   	bot_loop
-    
-    
-	jr $ra
+        
+        
+	jr      $ra
 
 
 
@@ -343,7 +343,67 @@ got_no_powerups:
     # $a1 is y position
     # returns nothing but it drives to the target
 path_to_target:
+        sub     $sp, $sp, 4
+        sw      $s0, 0($sp)
+        sw      $s1, 4($sp)
+        sw      $s2, 8($sp)
+        sw      $s3, 12($sp)
+        sw      $s4, 16($sp)
+        sw      $s5, 20($sp)
         
+        
+        lw      $s0, BOT_X($0)  #pix_x
+        lw      $s1, BOT_Y($0)  #pix_y
+        
+        mul     $s1, $a0, 10    #(x*10)
+        mul     $s2, $a1, 10    #(y*10)
+        add     $s1, $s1, 5     #x = (x*10) + 5
+        add     $s2, $s2, 5     #y = (y*10) + 5
+        
+        sub     $s3, $s1, $t0   #dx
+        sub     $s4, $s2, $t1   #dy
+        
+        move    $a0, $s3
+        move    $a1, $s4
+        
+        jal     sb_arctan        
+        mov.s   $f30, $f31      #$f30 is theta
+
+        mtc1    $s0, $f10       #$f10 is pix_x but a float
+        mtc1    $s1, $f11       #$f11 is pix_y but a float
+        cvt.s.w $f10, $f10      #pix_x
+        cvt.s.w $f11, $f11      #pix_y
+        
+while_arena_tile_has_obstacle:
+        move.s  $f0, $f30       #move theta to the argument
+        jal     cos_degrees     #call cos(theta)
+        mul.s   $f12, $f31, BOT_VELOCITY  #BOT_VELOCITY * cos(theta)
+        add.s   $f12, $f12, $f10          #next_pix_X = pix_x + BOT_VELOCITY * cos(theta)
+
+        move.s  $f0, $f30       #move theta to the argument
+        jal     sin_degrees     #call sin(theta)
+        mul.s   $f13, $f31, BOT_VELOCITY  #BOT_VELOCITY * sin(theta)      
+        add.s   $f13, $f13, $f11          #next_pix_y = pix_y + BOT_VELOCITY * sin(theta)      
+
+        div.s   $f12, $f12, 10  #next_pix_x / 10
+        div.s   $f13, $f13, 10  #next_pix_y / 10
+        cvt.w.s $f12, $f12      #(int) next_pix_x / 10
+        cvt.w.s $f13, $f13      #(int) next_pix_y / 10
+
+        mfc1    $a0, $f12       #tile_x = (int) next_pix_x / 10
+        mfc1    $a1, $f13       #tile_y = (int) next_pix_y / 10
+        jal     get_arena_map_index #arena_map[a0][a1]
+
+        and     $t0, $v0, 0x00FF arena_map[a0][a1] && 0x00FF
+        beqz    $t0, break_arena_tile_has_no_obstacles     #if the tile has no obstacle, then its valid to move to, and we should do so and break this loop
+        add.s   $f30, $f30, 30  #theta += 30    #try a bunch of stuff here.
+        j       while_arena_tile_has_obstacle
+break_arena_tile_has_no_obstacles:
+        li	$t0, 1          #set angle control to absolute
+	sw	$t0, ANGLE_CONTROL($0)
+        cvt.w.s $f30, $f30      #theta = (int) theta
+        mfc1    $t0, $f30
+        sw	$t0, ANGLE($0)
         
         jr      $ra
 
