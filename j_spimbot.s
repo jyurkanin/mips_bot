@@ -70,6 +70,7 @@ main:
 	li      $t4, 0
 	or      $t4, $t4, BONK_INT_MASK                     # request bonk
 	or      $t4, $t4, REQUEST_PUZZLE_INT_MASK           # puzzle interrupt bit
+        or      $t4, $t4, TIMER_INT_MASK
 	or      $t4, $t4, 1 # global enable
 	mtc0    $t4, $12
 
@@ -121,35 +122,35 @@ bot_loop:
         
         #if(the tile we are on is our color)
         bne     $s2, $s1, else_not_my_tile
-        sw      $0, SWITCH_MODE($0)     #Tile is our color so sprint
+#        sw      $0, SWITCH_MODE($0)     #Tile is our color so sprint
         j       end_color_switch
 else_not_my_tile:
         li      $t0, 1
-        sw      $t0, SWITCH_MODE($0)     #Tile is enemy color so paint
+        sw      $t0, SWITCH_MODE($0)     #Tile is enemy color or empty so paint
 
 end_color_switch:
         
         
 #Check if we have a target acquired#######################################################
-        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
+#        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
 
-        la  $t0, target_pos
-        lw  $a0, 0($t0)
-        lw  $a1, 4($t0) 
-        jal path_to_target                  #pathing subroutine
+#        la  $t0, target_pos
+#        lw  $a0, 0($t0)
+#        lw  $a1, 4($t0) 
+#        jal path_to_target                  #pathing subroutine
             
 check_paint_supply:
 #check if we have enough paint #########################################################################
 	lw	$t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
 	add	$t2, $0, 0			    	#load 0 into $t2	
-	bgt	$t1, $t2, check_powerup_map           	#if(paint > 0) branch if we have enough paint > 0
+	bgt	$t1, $t2, we_got_enough_paint           	#if(paint > 0) branch if we have enough paint > 0
 	lw      $t3, completed_request($0)      	#check if the puzzle is completed
         
         li      $t0, 1
         sw      $t0, SWITCH_MODE($0)
         
         beq     $s0, $0, have_target_dont_stop          #when $s0 is 0, we have a target
-#        sw      $0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
+        sw      $0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
 have_target_dont_stop:
         
 	beq	$t3, $0, check_powerup_map   		#branch if puzzle is not completed. So it does not request more puzzles
@@ -157,8 +158,11 @@ have_target_dont_stop:
 	la	$t1, puzzle		                #load puzzle address into $t1
 	sw	$t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
         j       check_powerup_map
-
         
+we_got_enough_paint:
+        li      $t0, 10
+        sw      $t0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
+        #Fall through to next
         
 check_powerup_map:
 #this finds the closest powerup and paths towards it. ##################################################
@@ -356,54 +360,58 @@ get_arena_map_index:
 
 ######### Interupts ############################################	
 .kdata
-chunkIH:    .space 32
+chunkIH:    .space 36
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
 unhandled_str:    .asciiz "Unhandled interrupt type\n"
 .ktext 0x80000180
 interrupt_handler:
 .set noat
-        move      $k1, $at        # Save $at
+        move    $k1, $at        # Save $at
 .set at
-        la        $k0, chunkIH
-        sw        $a0, 0($k0)        # Get some free registers
-        sw        $v0, 4($k0)        # by storing them to a global variable
-        sw        $t0, 8($k0)
-        sw        $t1, 12($k0)
-        sw        $t2, 16($k0)
-        sw        $t3, 20($k0)
-        sw $t4, 24($k0)
-        sw $t5, 28($k0)
-
-        mfc0      $k0, $13             # Get Cause register
-        srl       $a0, $k0, 2
-        and       $a0, $a0, 0xf        # ExcCode field
-        bne       $a0, 0, non_intrpt
+        la      $k0, chunkIH
+        sw      $a0, 0($k0)        # Restore saved registers
+        sw      $a1, 4($k0)        # Restore saved registers
+        sw      $a2, 8($k0)        # Restore saved registers
+        sw      $a3, 12($k0)        # Restore saved registers
+        sw      $v0, 16($k0)
+        sw      $t0, 20($k0)
+        sw      $t1, 24($k0)
+        sw      $t2, 28($k0)
+        sw      $t3, 32($k0)
+        sw      $t4, 36($k0)
+        sw      $t5, 40($k0)
+        sw      $ra, 44($k0)
+        
+        mfc0    $k0, $13             # Get Cause register
+        srl     $a0, $k0, 2
+        and     $a0, $a0, 0xf        # ExcCode field
+        bne     $a0, 0, non_intrpt
 
 
 
 interrupt_dispatch:            # Interrupt:
-        mfc0       $k0, $13        # Get Cause register, again
-        beq        $k0, 0, done        # handled all outstanding interrupts
+        mfc0    $k0, $13        # Get Cause register, again
+        beq     $k0, 0, done        # handled all outstanding interrupts
         
-        and        $a0, $k0, BONK_INT_MASK    # is there a bonk interrupt?
-        bne        $a0, 0, bonk_interrupt
+        and     $a0, $k0, BONK_INT_MASK    # is there a bonk interrupt?
+        bne     $a0, 0, bonk_interrupt
 
-        and        $a0, $k0, TIMER_INT_MASK    # is there a timer interrupt?
-        bne        $a0, 0, timer_interrupt
+        and     $a0, $k0, TIMER_INT_MASK    # is there a timer interrupt?
+        bne     $a0, 0, timer_interrupt
 
         and     $a0, $k0, REQUEST_PUZZLE_INT_MASK
         bne     $a0, 0, request_puzzle_interrupt
 
-        li        $v0, PRINT_STRING    # Unhandled interrupt types
-        la        $a0, unhandled_str
+        li      $v0, PRINT_STRING    # Unhandled interrupt types
+        la      $a0, unhandled_str
         syscall
         j    done
 
 bonk_interrupt:
 	sw 	$0, BONK_ACK
 
-	add $t0, $0, 1
-	sw  $t0, SWITCH_MODE($0)         #paint mode 
+	add     $t0, $0, 1
+	sw      $t0, SWITCH_MODE($0)         #paint mode 
 	li	$t0, 67
 	sw	$t0, ANGLE($0)
 	
@@ -432,8 +440,8 @@ request_puzzle_interrupt:
 	jal 	solve_puzzle 
 	sw	$a3, SUBMIT_SOLUTION($0)	#submit puzzle
 
-	li  $t3, 1
-	sw  $t3, completed_request($0)      #set the puzzle to completed
+	li      $t3, 1
+	sw      $t3, completed_request($0)      #set the puzzle to completed
 	j	interrupt_dispatch
     
 timer_interrupt:
@@ -442,21 +450,25 @@ timer_interrupt:
         j        interrupt_dispatch    # see if other interrupts are waiting
 
 non_intrpt:                # was some non-interrupt
-        li        $v0, PRINT_STRING
-        la        $a0, non_intrpt_str
+        li      $v0, PRINT_STRING
+        la      $a0, non_intrpt_str
         syscall                # print out an error message
         # fall through to done
 
 done:
         la      $k0, chunkIH
         lw      $a0, 0($k0)        # Restore saved registers
-        lw      $v0, 4($k0)
-        lw      $t0, 8($k0)
-        lw      $t1, 12($k0)
-        lw      $t2, 16($k0)
-        lw      $t3, 20($k0)
-        lw      $t4, 24($k0)
-        lw      $t5, 28($k0)
+        lw      $a1, 4($k0)        # Restore saved registers
+        lw      $a2, 8($k0)        # Restore saved registers
+        lw      $a3, 12($k0)        # Restore saved registers
+        lw      $v0, 16($k0)
+        lw      $t0, 20($k0)
+        lw      $t1, 24($k0)
+        lw      $t2, 28($k0)
+        lw      $t3, 32($k0)
+        lw      $t4, 36($k0)
+        lw      $t5, 40($k0)
+        lw      $ra, 44($k0)
 .set noat
         move    $at, $k1        # Restore $at
 .set at
