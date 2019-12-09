@@ -1,4 +1,4 @@
- #---------------------------CUSTOM PUZZLE CODE---------------------------
+# ---------------------------CUSTOM PUZZLE CODE---------------------------
 
 
 
@@ -681,18 +681,22 @@ increment_heap:
 copy_board:
     li  $t0, GRIDSIZE
     mul $t0, $t0, $t0               # GRIDSIZE * GRIDSIZE
-    li  $t1, 0                      # i = 0
+    move  $t1, $a0                      # i = 0
+    move  $t2, $a1
+    li  $t4, 0
 ih_loop:
-    bge $t1, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
+    bge $t4, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
 
-    mul $t2, $t1, 2                 # i * sizeof(unsigned short)
-    add $t3, $a0, $t2               # &old_board[i]
-    lhu $t3, 0($t3)                 # old_board[i]
+    #mul $t2, $t1, 2                 # i * sizeof(unsigned short)
+    #add $t3, $a0, $t2               # &old_board[i]
+    lw $t3, 0($t1)                 # old_board[i]
 
-    add $t4, $a1, $t2               # &new_board[i]
-    sh  $t3, 0($t4)                 # new_board[i] = old_board[i]
+    #add $t4, $a1, $t2               # &new_board[i]
+    sw  $t3, 0($t2)                 # new_board[i] = old_board[i]
 
-    addi $t1, $t1, 1                # i++
+    addi $t1, $t1, 4                # i++
+    addi $t2, $t2, 4
+    addi $t4, $t4, 2
     j    ih_loop
 ih_done:
     move $v0, $a1

@@ -27,6 +27,9 @@ bool rule1(unsigned short* board) {
 }
 
 
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 
 
 
@@ -67,4 +70,103 @@ bool solve(unsigned short *current_board, unsigned row, unsigned col, Puzzle* pu
         }
     }
     return false;
+}
+
+
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+
+
+
+bool board_done(unsigned short *current_board, Puzzle* puzzle) {
+    // Check if all columns and rows are unique
+    int ALL_VALUES = (1 << GRIDSIZE) - 1;
+    for (int i = 0 ; i < GRIDSIZE; ++ i) {
+        short acc = 0;
+        for (int j = 0 ; j < GRIDSIZE ; ++ j) {
+            unsigned value = current_board[i*GRIDSIZE + j];
+            if (!has_single_bit_set(value)) {
+                continue;
+            }
+            acc = acc ^ value;
+        }
+        // check if all bits in rows are unique
+        if (acc != ALL_VALUES) {
+            // printf("Row %d unique failed %d - %d\n", i, acc, ALL_VALUES);
+            return false;
+        }
+        acc = 0;
+        for (int j = 0 ; j < GRIDSIZE ; ++ j) {
+            unsigned value = current_board[j*GRIDSIZE + i];
+            if (!has_single_bit_set(value)) {
+                continue;
+            }
+            acc ^= value;
+        }
+        // check if all bits in cols are unique
+        if (acc != ALL_VALUES) {
+            return false;
+        }
+    }
+
+    for (int i = 0 ; i < GRIDSIZE; ++ i) {
+        short left_constraint = puzzle->constraints[(i+1)*(GRIDSIZE+2) + 0];
+        int count = 0;
+        int last = 0;
+        for (int j = 0; j < GRIDSIZE; ++ j) {
+            int current = current_board[i*GRIDSIZE + j];
+            if (current > last) {
+                count += 1;
+                last = current;
+            }
+        }
+        if (count != left_constraint) {
+            return false;
+        }
+
+        short right_constraint = puzzle->constraints[(i+1)*(GRIDSIZE+2) + GRIDSIZE + 1];
+        count = 0;
+        last = 0;
+        for (int j = GRIDSIZE-1; j >= 0; --j) {
+            int current = current_board[i*GRIDSIZE + j];
+            if (current > last) {
+                count += 1;
+                last = current;
+            }
+        }
+        if (count != right_constraint) {
+            return false;
+        }
+
+        short top_constraint = puzzle->constraints[i + 1];
+        count = 0;
+        last = 0;
+        for (int j = 0; j < GRIDSIZE; ++ j) {
+            int current = current_board[j*GRIDSIZE + i];
+            if (current > last) {
+                count += 1;
+                last = current;
+            }
+        }
+        if (count != top_constraint) {
+            return false;
+        }
+
+        short bottom_constraint = puzzle->constraints[(GRIDSIZE+1)*(GRIDSIZE+2) + i + 1];
+        count = 0;
+        last = 0;
+        for (int j = GRIDSIZE-1; j >= 0; --j) {
+            int current = current_board[j*GRIDSIZE + i];
+            if (current > last) {
+                count += 1;
+                last = current;
+            }
+        }
+        if (count != bottom_constraint) {
+            return false;
+        }
+    }
+
+    return true;
 }
