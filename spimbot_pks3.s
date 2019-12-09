@@ -1,17 +1,5 @@
 # This is the only file that will be considered for grading
 
-    #struct ArenaPowerUp{
-    #   unsigned short x; 2
-    #   unsigned short y; 2
-    #   unsigned activation_timestamp; 4
-    #   PowerUpType powerUpType; 1 + 3padding
-    #}; 12 bytes total
-    #
-    #struct ArenaPowerupMap{
-    #   unsigned length;    4
-    #   ArenaPowerUp powerups[NUM_POWERUP]; 4 + 4 = 8
-    #};
-    
 .data
 # syscall constants
 PRINT_STRING            = 4
@@ -46,23 +34,15 @@ SWITCH_MODE             = 0xffff00f0
 
 ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
-
-CHECK_POWERUP_MAP       = 0x100
     
     
 ### Puzzle
 GRIDSIZE = 8
-puzzle:              .half 0:164              
-heap:                .half 0:4096
-completed_request:   .half 0:1  
-last_powerup_check:  .word 0:1  #holds the cycle of the last update to the powerup map
-powerup_map:         .word 0:2  #holds length and a pointer to an array of power ups
-target_pos:          .word 0:2  #holds x and y position
-
-###### Reserved for the Given Functions ########
-
-
-	
+puzzle:      .half 0:164              
+heap:        .half 0:4096
+completed_request: .half 0:1  
+last_powerup_check: .word 0:1  #holds the cycle of the last update to the powerup map
+    
 .text
 main:
 	# Construct interrupt mask
@@ -72,216 +52,44 @@ main:
 	or      $t4, $t4, 1 # global enable
 	mtc0    $t4, $12
 
-    #if s0 is set to 0 then we have a pathing target
 
-
-	li  $t1, 1
-	sw  $t1, SWITCH_MODE($0)         #paint mode
+    li	$t1, 1
+    sw  $t1, SWITCH_MODE($0)         #paint mode
     
-	li  $t1, 10
-	sw  $t1, VELOCITY($0)
+	li	$t1, 10
+	sw	$t1, VELOCITY($0)
 	
 	#This is going to need to See how many buckets of paint are left and then request a puzzle.
 	#$t1 is the number of paint buckets we got
-	li  $t3, 1
-	sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
-
-	lw  $t1, GET_TIMER($0)              #gets cycle number  
-	sw  $t1, last_powerup_check($0)     #store current cycle number to this.
-
-	la  $t3, powerup_map
-	sw  $t3, GET_POWERUP_MAP($0)        #get initial powerup map
+	li	$t3, 1
+    sw  $t3, completed_request($0)      #start with this set to 1. Meaning it is ready to request a new puzzle.
     
 bot_loop:
-
-#check if we have enough paint #########################################################################
-	lw	    $t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
-	add	    $t2, $0, 10			    	#load 10 into $t2	
-	bgt	    $t1, $t2, end_check_for_paint     	#branch if we have enough paint > 10    
-	lw      $t3, completed_request($0)      	#check if the puzzle is completed
+    lw  $t1, GET_TIMER($0)              #gets cycle number
     
-	beq	    $t3, $0, end_check_for_paint   		#branch if puzzle is not completed. So it does not request more puzzles
-	sw      $0, completed_request($0)       	#set request to incomplete
-	la	    $t1, puzzle			        #load puzzle address into $t1
-	sw	    $t1, REQUEST_PUZZLE($0)		    	#request puzzle with this address
-
+    
+	lw	$t1, GET_PAINT_BUCKETS($0)	    #does what it says.
+	add	$t2, $0, 10			            #load 10 into $t2
 	
-end_check_for_paint:
-#this finds the closest powerup and paths towards it. ##################################################
-	lw  	$t1, GET_TIMER($0)              #gets current cycle number
-	li  	$t0, CHECK_POWERUP_MAP          #a constant for comparing. If the timer says its been more than CHECK_POWERUP_MAP cycles since last powermap update, then get a new powerup map
-	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
-	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
-
-	bgt 	$t1, $t0, end_check_for_powerup_map #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
-
-	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
-	la  	$a0, powerup_map    
-	sw  	$a0, GET_POWERUP_MAP($0)        #get initial powerup map
+	bgt	$t1, $t2, end_check_for_paint   #branch if we have enough paint > 10
     
-	jal 	get_closest_powerup
-
-	li  	$t0, -1 		        #if get_closest_powerup return -1 == x, then no powerup was found
-	beq 	$t0, $v0, set_target_null    	#if no powerup is found, then skip this part 
+    lw  $t3, completed_request($0)      #check if the puzzle is completed
     
-	la  	$t0, target_pos     
-	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
-	sw	    $v1, 4($t0)
-	add	    $s0, $0, $0                     #signal that we have found a target
-	j	    end_check_for_powerup_map
-set_target_null:
-	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
+	beq	$t3, $0, end_check_for_paint	#branch if puzzle is not completed. So it does not request more puzzles
+    sw  $0, completed_request($0)       #set request to incomplete
+	la	$t1, puzzle			            #load puzzle address into $t1
+	sw	$t1, REQUEST_PUZZLE($0)		    #request puzzle with this address
+    
+end_check_for_paint: #start of section that does pathfinding to the closest powerup
 
-	
-end_check_for_powerup_map:
-	#This is where the next check in the game loop should go. ######################################	
 
-	j   	bot_loop
+    
+continue_bot_loop: 
+	j	bot_loop
     
     
 	jr $ra
 
-
-
-
-##################################################################################
-# Given Functions ################################################################
-##################################################################################
-.data
-three:  .float  3.0
-five:   .float  5.0
-PI:     .float  3.141592
-F180:   .float  180.0
-
-
-.text
-# -----------------------------------------------------------------------
-# euclidean_dist - computes sqrt(x^2 + y^2)
-# $a0 - x
-# $a1 - y
-# returns the distance
-# -----------------------------------------------------------------------
-euclidean_dist:
-        mul	$a0, $a0, $a0	            # x^2
-        mul	$a1, $a1, $a1	            # y^2
-        add	$v0, $a0, $a1	            # x^2 + y^2
-        mtc1	$v0, $f0
-        cvt.s.w	$f0, $f0	            # float(x^2 + y^2)
-        sqrt.s	$f0, $f0	            # sqrt(x^2 + y^2)
-        cvt.w.s	$f0, $f0	            # int(sqrt(...))
-        mfc1	$v0, $f0
-        jr	$ra
-
-
-# -----------------------------------------------------------------------
-# sb_arctan - computes the arctangent of y / x
-# $a0 - x
-# $a1 - y
-# returns the arctangent
-# -----------------------------------------------------------------------
-sb_arctan:
-	li	$v0, 0		# angle = 0;
-	abs	$t0, $a0	# get absolute values
-	abs	$t1, $a1
-	ble	$t1, $t0, no_TURN_90
-	## if (abs(y) > abs(x)) { rotate 90 degrees }
-	move	$t0, $a1	# int temp = y;
-	neg	$a1, $a0	# y = -x;
-	move	$a0, $t0	# x = temp;
-	li	$v0, 90		# angle = 90;
-no_TURN_90:
-	bgez	$a0, pos_x 	# skip if (x >= 0)
-	## if (x < 0)
-	add	$v0, $v0, 180	# angle += 180;
-pos_x:
-	mtc1	$a0, $f0
-	mtc1	$a1, $f1
-	cvt.s.w $f0, $f0	# convert from ints to floats
-	cvt.s.w $f1, $f1
-	div.s	$f0, $f1, $f0	# float v = (float) y / (float) x;
-	mul.s	$f1, $f0, $f0	# v^^2
-	mul.s	$f2, $f1, $f0	# v^^3
-	l.s	$f3, three	# load 3.0
-	div.s 	$f3, $f2, $f3	# v^^3/3
-	sub.s	$f6, $f0, $f3	# v - v^^3/3
-	mul.s	$f4, $f1, $f2	# v^^5
-	l.s	$f5, five	# load 5.0
-	div.s 	$f5, $f4, $f5	# v^^5/5
-	add.s	$f6, $f6, $f5	# value = v - v^^3/3 + v^^5/5
-	l.s	$f8, PI		# load PI
-	div.s	$f6, $f6, $f8	# value / PI
-	l.s	$f7, F180	# load 180.0
-	mul.s	$f6, $f6, $f7	# 180.0 * value / PI
-	cvt.w.s $f6, $f6	# convert "delta" back to integer
-	mfc1	$t0, $f6
-	add	$v0, $v0, $t0	# angle += delta
-	jr 	$ra
-
-
-	
-##################################################################################
-# My Functions ###################################################################
-##################################################################################
-# Pointer to the powerup map
-# v0 = x_pos, v1 = y_pos	
-# this would benefit from using more registers instead of memory access.
-# It doesn't run very many iterations of the inner loop so it probably would not speed up that much with SIMD	
-	
-get_closest_powerup:
-	sub	$sp, $sp, 4
-	sw	$ra, 0($sp)
-	
-	lw	$t1, 0($a0)		#get the number of powerups
-	add	$t2, $a0, 4		#load the pointer to the powerups array
-
-	li 	$t3, 0			#t3 is the index in the array.
-	li	$t6, 0xFFFFFFFF		#this is the distance to the closest powerup
-	
-iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
-	bge	    $t3, $t1, end_iterate_over_powerups
-
-	lhu	    $t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
-	lhu	    $t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
-
-	move	$a0, $t4
-	move	$a1, $t5
-
-	#im gunna do what called a pro-gamer move and not save my temporaries
-	jal	euclidean_dist
-	
-	bltu	    $t6, $v0, dont_set_min_dist 	#if(t6 < v0) branch
-	move	$t6, $v0			#set the smallest distance.
-	move	$t7, $t2			#record the pointer of the powerup for later use.
-
-dont_set_min_dist:	
-	add	    $t2, $t2, 12		#increment the pointer by 12 bytes. Due to the size of ArenaPowerup struct
-	add	    $t3, $t3, 1
-	j	    iterate_over_powerups
-	
-end_iterate_over_powerups:
-
-    li  $t8, 0xFFFFFFFF
-    li  $v0, -1
-    li  $v1, -1
-    beq $t6, $t8, got_no_powerups
-    
-	lh	$v0, 0($t7)		#get x_pos (short) powerup_array[min].x
-	lh	$v1, 2($t7)		#get y_pos (short) powerup_array[min].y
-got_no_powerups:
-	lw	$ra, 0($sp)
-	add	$sp, $sp, 4
-	jr	$ra
-
-
-
-
-
-
-
-
-
-
-######### Interupts ############################################	
 .kdata
 chunkIH:    .space 32
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
@@ -329,7 +137,7 @@ interrupt_dispatch:            # Interrupt:
 bonk_interrupt:
 	sw 	$0, BONK_ACK
 
-	add $t0, $0, 1
+    add $t0, $0, 1
 	sw  $t0, SWITCH_MODE($0)         #paint mode 
 	li	$t0, 67
 	sw	$t0, ANGLE($0)
@@ -343,7 +151,7 @@ bonk_interrupt:
 	j       interrupt_dispatch    # see if other interrupts are waiting
 
 request_puzzle_interrupt:
-	li	$t0, 69420
+    li	$t0, 69420
 	sw 	$t0, REQUEST_PUZZLE_ACK($0)
 
 	
@@ -359,8 +167,8 @@ request_puzzle_interrupt:
 	jal 	solve_puzzle 
 	sw	$a3, SUBMIT_SOLUTION($0)	#submit puzzle
 
-	li  $t3, 1
-	sw  $t3, completed_request($0)      #set the puzzle to completed
+    li  $t3, 1
+    sw  $t3, completed_request($0)      #set the puzzle to completed
 	j	interrupt_dispatch
     
 timer_interrupt:
@@ -388,6 +196,14 @@ done:
     move    $at, $k1        # Restore $at
 .set at
     eret
+
+
+
+
+
+
+
+
 
 
 
@@ -423,13 +239,18 @@ done:
 
 
 
+#ORIGINAL Performance
+# 238 tiles painted
+# 16 paint buckets left
 
 
+#Performance improvement #1
+#286 tiles painted
+#13 paint buckets left
 
-
-
-
-
+#Performance improvement #2
+#445 tiles painted
+#14 paint buckets left
 
 	
 # Given Puzzle Code ################################################################################################################################################
@@ -524,9 +345,10 @@ solve_start_do:
     move $s6, $v0      # done
 
     move $a0, $s2      # current_board
-    jal rule2
 
-    or   $v0, $v0, $s6 # changed |= rule2(current_board);
+    #TODO - Check if this breaks code
+    #jal rule2
+    #or   $v0, $v0, $s6 # changed |= rule2(current_board);
 
     bne $v0, $0, solve_start_do # while (changed)
 
@@ -534,7 +356,6 @@ solve_start_do:
     move $a1, $s3     # puzzle
     jal board_done
 
-    beq $v0, $0, solve_board_not_done_after_dowhile  # if (done)
     move $s7, $v0     # save done
     move $a0, $s2     # current_board
     move $a1, $s3     # puzzle // same as puzzle->board
@@ -543,44 +364,6 @@ solve_start_do:
     move $v0, $s7     # $v0: done
     j   solve_done
 
-solve_board_not_done_after_dowhile:
-
-
-    mul $t0, $s0, $s7  # row*GRIDSIZE
-    add $t0, $t0, $s1  # row*GRIDSIZE + col
-    mul $t0, $t0, 2    # sizeof(unsigned short) * (row*GRIDSIZE + col)
-    add $s4, $t0, $s2  # &current_board[row*GRIDSIZE + col]
-    lhu $s6, 0($s4)    # possibles = current_board[row*GRIDSIZE + col]
-
-    li $s5, 0 # char number = 0
-solve_start_guess:
-    bge $s5, $s7, solve_start_guess_end # number < GRIDSIZE
-    li $t0, 1
-    sll $t1, $t0, $s5 # (1 << number)
-    and $t0, $t1, $s6 # (1 << number) & possibles
-    beq $t0, $0, solve_start_guess_else
-    sh  $t1, 0($s4)   # current_board[row*GRIDSIZE + col] = 1 << number;
-    
-    move $a0, $s2     # current_board
-    move $a1, $s0     # next_row = row
-    sub  $t0, $s7, 1  # GRIDSIZE-1
-    bne  $s1, $t0, solve_start_guess_same_row # col < GRIDSIZE // col==GRIDSIZE-1
-    addi $a1, $a1, 1  # row + 1
-solve_start_guess_same_row:
-    move $a2, $s1     # col
-    addu $a2, $a2, 1  # col + 1
-    divu $a2, $s7
-    mfhi $a2          # (col + 1) % GRIDSIZE
-    move $a3, $s3     # puzzle
-    jal solve_puzzle         # solve(current_board, next_row, (col + 1) % GRIDSIZE, puzzle)
-    
-    bne  $v0, $0, solve_done_true # if done {return true}
-    sh   $s6, 0($s4)  # current_board[row*GRIDSIZE + col] = possibles;
-solve_start_guess_else:
-    addi $s5, $s5, 1
-    j solve_start_guess
-
-solve_done_false:
 solve_start_guess_end:
     li  $v0, 0        # done = false
 
@@ -677,6 +460,8 @@ r1_for_k_start:
         not     $t3, $s6                # $t3: ~value
         and     $t1, $t1, $t3           # $t1:  board[y*GRIDSIZE + k] & ~value
         sh      $t1, 0($t8)             # board[y*GRIDSIZE + k] &= ~value
+
+        
         li      $s2, 1                  # changed = true
 r1_if_kx_end:   
         beq     $s5, $s3, r1_if_ky_end  # if (k != y)
@@ -1075,18 +860,22 @@ increment_heap:
 copy_board:
     li  $t0, GRIDSIZE
     mul $t0, $t0, $t0               # GRIDSIZE * GRIDSIZE
-    li  $t1, 0                      # i = 0
+    move  $t1, $a0                      # i = 0
+    move  $t2, $a1
+    li  $t4, 0
 ih_loop:
-    bge $t1, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
+    bge $t4, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
 
-    mul $t2, $t1, 2                 # i * sizeof(unsigned short)
-    add $t3, $a0, $t2               # &old_board[i]
-    lhu $t3, 0($t3)                 # old_board[i]
+    #mul $t2, $t1, 2                 # i * sizeof(unsigned short)
+    #add $t3, $a0, $t2               # &old_board[i]
+    lw $t3, 0($t1)                 # old_board[i]
 
-    add $t4, $a1, $t2               # &new_board[i]
-    sh  $t3, 0($t4)                 # new_board[i] = old_board[i]
+    #add $t4, $a1, $t2               # &new_board[i]
+    sw  $t3, 0($t2)                 # new_board[i] = old_board[i]
 
-    addi $t1, $t1, 1                # i++
+    addi $t1, $t1, 4                # i++
+    addi $t2, $t2, 4
+    addi $t4, $t4, 2
     j    ih_loop
 ih_done:
     move $v0, $a1
