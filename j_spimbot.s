@@ -224,7 +224,7 @@ F180:   .float  180.0
 # $a1 - y
 # returns the distance
 # -----------------------------------------------------------------------
-Euclidean_dist:
+euclidean_dist:
         mul	$a0, $a0, $a0	            # x^2
         mul	$a1, $a1, $a1	            # y^2
         add	$v0, $a0, $a1	            # x^2 + y^2
@@ -373,20 +373,32 @@ path_to_target:
         mtc1    $s1, $f11       #$f11 is pix_y but a float
         cvt.s.w $f10, $f10      #pix_x
         cvt.s.w $f11, $f11      #pix_y
-        
+
+        li      $t0, BOT_VELOCITY
+        mtc1    $t0, $f14       
+        cvt.s.w $f14, $f14      # $f14 = (int) BOT_VELOCITY
+
+        li      $t0, 10
+        mtc1    $t0, $f15       
+        cvt.s.w $f15, $f15      # $f14 = (int) BOT_VELOCITY
+
+        li      $t0, 30
+        mtc1    $t0, $f16       
+        cvt.s.w $f16, $f16      # $f14 = (int) BOT_VELOCITY
+
 while_arena_tile_has_obstacle:
-        move.s  $f0, $f30       #move theta to the argument
+        mov.s   $f0, $f30       #move theta to the argument
         jal     cos_degrees     #call cos(theta)
-        mul.s   $f12, $f31, BOT_VELOCITY  #BOT_VELOCITY * cos(theta)
+        mul.s   $f12, $f31, $f14  #BOT_VELOCITY * cos(theta)
         add.s   $f12, $f12, $f10          #next_pix_X = pix_x + BOT_VELOCITY * cos(theta)
 
-        move.s  $f0, $f30       #move theta to the argument
+        mov.s   $f0, $f30       #move theta to the argument
         jal     sin_degrees     #call sin(theta)
-        mul.s   $f13, $f31, BOT_VELOCITY  #BOT_VELOCITY * sin(theta)      
+        mul.s   $f13, $f31, $f14  #BOT_VELOCITY * sin(theta)      
         add.s   $f13, $f13, $f11          #next_pix_y = pix_y + BOT_VELOCITY * sin(theta)      
 
-        div.s   $f12, $f12, 10  #next_pix_x / 10
-        div.s   $f13, $f13, 10  #next_pix_y / 10
+        div.s   $f12, $f12, $f15  #next_pix_x / 10
+        div.s   $f13, $f13, $f15  #next_pix_y / 10
         cvt.w.s $f12, $f12      #(int) next_pix_x / 10
         cvt.w.s $f13, $f13      #(int) next_pix_y / 10
 
@@ -394,9 +406,9 @@ while_arena_tile_has_obstacle:
         mfc1    $a1, $f13       #tile_y = (int) next_pix_y / 10
         jal     get_arena_map_index #arena_map[a0][a1]
 
-        and     $t0, $v0, 0x00FF arena_map[a0][a1] && 0x00FF
+        and     $t0, $v0, 0x00FF #arena_map[a0][a1] && 0x00FF
         beqz    $t0, break_arena_tile_has_no_obstacles     #if the tile has no obstacle, then its valid to move to, and we should do so and break this loop
-        add.s   $f30, $f30, 30  #theta += 30    #try a bunch of stuff here.
+        add.s   $f30, $f30, $f16  #theta += 30    #try a bunch of stuff here.
         j       while_arena_tile_has_obstacle
 break_arena_tile_has_no_obstacles:
         li	$t0, 1          #set angle control to absolute
@@ -471,9 +483,9 @@ sin_degrees:
 	mul.s	$f4, $f1, $f2	# v^^5
 	l.s	$f5, SIN_C3     # load 120.0
 	div.s 	$f5, $f4, $f5	# v^^5/120.0
-	add.s	$f6, $f6, $f5	# value = v - v^^3/6 + v^^5/120
+	add.s	$f31, $f6, $f5	# value = v - v^^3/6 + v^^5/120
         
-	cvt.w.s $f31, $f6	# convert value back to integer
+#	cvt.w.s $f31, $f6	# convert value back to integer
 
 #        lwc1    $f0, 0($sp)
 #        lwc1    $f1, 4($sp)
@@ -528,10 +540,10 @@ cos_degrees:
         
 	l.s	$f5, COS_C3     # load 24.0
 	div.s 	$f5, $f2, $f5	# v^^4/24.0
-	add.s	$f6, $f6, $f5	# value = 1 - v^^2/2 + v^^4/24
+	add.s	$f31, $f6, $f5	# value = 1 - v^^2/2 + v^^4/24
         
-	cvt.w.s $f6, $f6	# convert value back to integer
-	mfc1	$f31, $f6       # move value to $v0
+#	cvt.w.s $f31, $f6	# convert value back to integer
+#	mfc1	$f31, $f6       # move value to $f31
         
 #        lwc1    $f0, 0($sp)
 #        lwc1    $f1, 4($sp)
