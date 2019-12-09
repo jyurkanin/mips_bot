@@ -239,14 +239,18 @@ done:
 
 
 
-
+#ORIGINAL Performance
 # 238 tiles painted
 # 16 paint buckets left
 
 
+#Performance improvement #1
+#286 tiles painted
+#13 paint buckets left
 
-
-
+#Performance improvement #2
+#445 tiles painted
+#14 paint buckets left
 
 	
 # Given Puzzle Code ################################################################################################################################################
@@ -352,7 +356,6 @@ solve_start_do:
     move $a1, $s3     # puzzle
     jal board_done
 
-    beq $v0, $0, solve_board_not_done_after_dowhile  # if (done)
     move $s7, $v0     # save done
     move $a0, $s2     # current_board
     move $a1, $s3     # puzzle // same as puzzle->board
@@ -361,44 +364,6 @@ solve_start_do:
     move $v0, $s7     # $v0: done
     j   solve_done
 
-solve_board_not_done_after_dowhile:
-
-
-    mul $t0, $s0, $s7  # row*GRIDSIZE
-    add $t0, $t0, $s1  # row*GRIDSIZE + col
-    mul $t0, $t0, 2    # sizeof(unsigned short) * (row*GRIDSIZE + col)
-    add $s4, $t0, $s2  # &current_board[row*GRIDSIZE + col]
-    lhu $s6, 0($s4)    # possibles = current_board[row*GRIDSIZE + col]
-
-    li $s5, 0 # char number = 0
-solve_start_guess:
-    bge $s5, $s7, solve_start_guess_end # number < GRIDSIZE
-    li $t0, 1
-    sll $t1, $t0, $s5 # (1 << number)
-    and $t0, $t1, $s6 # (1 << number) & possibles
-    beq $t0, $0, solve_start_guess_else
-    sh  $t1, 0($s4)   # current_board[row*GRIDSIZE + col] = 1 << number;
-    
-    move $a0, $s2     # current_board
-    move $a1, $s0     # next_row = row
-    sub  $t0, $s7, 1  # GRIDSIZE-1
-    bne  $s1, $t0, solve_start_guess_same_row # col < GRIDSIZE // col==GRIDSIZE-1
-    addi $a1, $a1, 1  # row + 1
-solve_start_guess_same_row:
-    move $a2, $s1     # col
-    addu $a2, $a2, 1  # col + 1
-    divu $a2, $s7
-    mfhi $a2          # (col + 1) % GRIDSIZE
-    move $a3, $s3     # puzzle
-    jal solve_puzzle         # solve(current_board, next_row, (col + 1) % GRIDSIZE, puzzle)
-    
-    bne  $v0, $0, solve_done_true # if done {return true}
-    sh   $s6, 0($s4)  # current_board[row*GRIDSIZE + col] = possibles;
-solve_start_guess_else:
-    addi $s5, $s5, 1
-    j solve_start_guess
-
-solve_done_false:
 solve_start_guess_end:
     li  $v0, 0        # done = false
 
@@ -495,6 +460,8 @@ r1_for_k_start:
         not     $t3, $s6                # $t3: ~value
         and     $t1, $t1, $t3           # $t1:  board[y*GRIDSIZE + k] & ~value
         sh      $t1, 0($t8)             # board[y*GRIDSIZE + k] &= ~value
+
+        
         li      $s2, 1                  # changed = true
 r1_if_kx_end:   
         beq     $s5, $s3, r1_if_ky_end  # if (k != y)
