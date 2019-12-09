@@ -244,11 +244,13 @@ done:
 # 16 paint buckets left
 
 
-#Current Performance
+#Performance improvement #1
 #286 tiles painted
 #13 paint buckets left
 
-
+#Performance improvement #2
+#445 tiles painted
+#14 paint buckets left
 
 	
 # Given Puzzle Code ################################################################################################################################################
@@ -354,7 +356,6 @@ solve_start_do:
     move $a1, $s3     # puzzle
     jal board_done
 
-    beq $v0, $0, solve_board_not_done_after_dowhile  # if (done)
     move $s7, $v0     # save done
     move $a0, $s2     # current_board
     move $a1, $s3     # puzzle // same as puzzle->board
@@ -363,48 +364,6 @@ solve_start_do:
     move $v0, $s7     # $v0: done
     j   solve_done
 
-solve_board_not_done_after_dowhile:
-
-
-    mul $t0, $s0, $s7  # row*GRIDSIZE
-    add $t0, $t0, $s1  # row*GRIDSIZE + col
-    mul $t0, $t0, 2    # sizeof(unsigned short) * (row*GRIDSIZE + col)
-    add $s4, $t0, $s2  # &current_board[row*GRIDSIZE + col]
-    lhu $s6, 0($s4)    # possibles = current_board[row*GRIDSIZE + col]
-
-    li $s5, 0 # char number = 0
-solve_start_guess:
-    bge $s5, $s7, solve_start_guess_end # number < GRIDSIZE
-    li $t0, 1
-    sll $t1, $t0, $s5 # (1 << number)
-    and $t0, $t1, $s6 # (1 << number) & possibles
-    beq $t0, $0, solve_start_guess_else
-    sh  $t1, 0($s4)   # current_board[row*GRIDSIZE + col] = 1 << number;
-    
-    move $a0, $s2     # current_board
-    move $a1, $s0     # next_row = row
-    sub  $t0, $s7, 1  # GRIDSIZE-1
-    bne  $s1, $t0, solve_start_guess_same_row # col < GRIDSIZE // col==GRIDSIZE-1
-    addi $a1, $a1, 1  # row + 1
-solve_start_guess_same_row:
-    move $a2, $s1     # col
-    addu $a2, $a2, 1  # col + 1
-    divu $a2, $s7
-    mfhi $a2          # (col + 1) % GRIDSIZE
-    move $a3, $s3     # puzzle
-    jal rule1         # solve(current_board, next_row, (col + 1) % GRIDSIZE, puzzle)
-    
-    move $a0, $s2     # current_board
-    move $a1, $s3     # puzzle
-    jal board_done
-
-    beq  $v0, 1, solve_done_true # if done {return true}
-    #sh   $s6, 0($s4)  # current_board[row*GRIDSIZE + col] = possibles;
-solve_start_guess_else:
-    addi $s5, $s5, 1
-    j solve_start_guess
-
-solve_done_false:
 solve_start_guess_end:
     li  $v0, 0        # done = false
 
@@ -541,6 +500,105 @@ r1_return:
         add     $sp, $sp, 24
         jr      $ra
 
+# rule2 #####################################################
+#
+# argument $a0: pointer to current board
+rule2:
+    sub $sp, $sp, 4                       #Store ra onto stack and initialize GRIDSIZE
+    sw $ra, 0($sp)
+    li $t0, GRIDSIZE                               # GRIDSIZE
+    li $t1, 1
+    sll $t1, $t1, $t0
+    subu $t1, $t1, 1                         #int ALL_VALUES = (1 << GRIDSIZE) - 1;
+    li $v0, 0                               #bool changed = false
+    li $t2, 0                               #i = 0
+rule2iloopstart:
+    bge $t2, $t0, rule2iloopend
+    li $t3, 0                               #j = 0
+    rule2jloopstart:
+        bge $t3, $t0, rule2jloopend
+        
+        mul $t4, $t2, $t0
+        add $t4, $t4, $t3
+        mul $t4, $t4, 2                     #sizeof(unsigned short)*(i*GRIDSIZE + j)
+        add $t4, $a0, $t4                   #address of board[i*GRIDSIZE+j]
+        lhu $t4, 0($t4)                     #board[i*GRIDSIZE + j]
+        
+        sub $sp, $sp, 24                    # Allocate stack 
+        sw $a0, 0($sp)
+        sw $t0, 4($sp)
+        sw $t1, 8($sp)
+        sw $t2, 12($sp)
+        sw $t3, 16($sp)
+        sw $v0, 20($sp)                     #Store all necessary variables on stack
+        move $a0, $t4
+        jal has_single_bit_set
+        lw $a0, 0($sp)
+        lw $t0, 4($sp)
+        lw $t1, 8($sp)
+        lw $t2, 12($sp)
+        lw $t3, 16($sp)
+        move $t4, $v0                       # Save $v0 into $t4
+        lw $v0, 20($sp)                     # Restore variables
+        add $sp, $sp, 24                    # Deallocate stack
+
+        bne $t4, $0, rule2continuestatement #if (has_single_bit_set(value)) continue;
+        
+        li $t5, 0                           #isum = 0
+        li $t6, 0                           #jsum = 0
+        li $t4, 0                           #k = 0, t2 = i, t3 = j, t4 = k
+        rule2kloopstart:
+            bge $t4, $t0, rule2kloopend
+            beq $t4, $t3, rule2kequalsj
+                mul $t7, $t2, $t0           #i*GRIDSIZE
+                add $t7, $t7, $t4           #i*GRIDSIZE+k
+                mul $t7, $t7, 2
+                add $t7, $a0, $t7           #&board[i*GRIDSIZE + k]
+                lhu $t7, 0($t7)
+                or $t6, $t6, $t7            #jsum |= board[i*GRIDSIZE + k];
+        rule2kequalsj:
+            beq $t4, $t2, rule2kequalsi     
+                mul $t7, $t4, $t0           #k*GRIDSIZE
+                add $t7, $t7, $t3           #k*GRIDSIZE+j
+                mul $t7, $t7, 2
+                add $t7, $a0, $t7           #&board[k*GRIDSIZE + j]
+                lhu $t7, 0($t7)
+                or $t5, $t5, $t7            #isum |= board[k*GRIDSIZE + j];
+        rule2kequalsi:
+            add $t4, $t4, 1
+            j rule2kloopstart
+        rule2kloopend:
+        beq $t1, $t6, rule2allvalequalsjsum
+            not $t6, $t6                    # ~jsum
+            and $t6, $t1, $t6               #ALL_VALUES & ~jsum
+            mul $t7, $t0, $t2               # i*GRIDSIZE
+            add $t7, $t7, $t3               #[i*GRIDSIZE+j]
+            mul $t7, $t7, 2                 #(i*GRIDSIZE+j)*sizeof(unsigned short)
+            add $t7, $a0, $t7
+            sh $t6, 0($t7)                  #board[i*GRIDSIZE + j] = ALL_VALUES & ~jsum;
+            li $v0, 1
+            j rule2continuestatement
+        rule2allvalequalsjsum:
+        beq $t1, $t5, rule2continuestatement
+            not $t5, $t5                    # ~isum
+            and $t5, $t1, $t5               #ALL_VALUES & ~isum;
+            mul $t7, $t0, $t2               # i*GRIDSIZE
+            add $t7, $t7, $t3               #[i*GRIDSIZE+j]
+            mul $t7, $t7, 2                 #(i*GRIDSIZE+j)*sizeof(unsigned short)
+            add $t7, $a0, $t7
+            sh $t5, 0($t7)                  #board[i*GRIDSIZE + j] = ALL_VALUES & ~isum;
+            li $v0, 1
+    rule2continuestatement:
+        add $t3, $t3, 1
+        j rule2jloopstart                   #continue; iterates to next index of jloop
+    rule2jloopend:
+    add $t2, $t2, 1
+    j rule2iloopstart
+rule2iloopend:
+
+    lw $ra, 0($sp)
+    add $sp, $sp, 4
+    jr $ra
 
 
 # board done ##################################################
