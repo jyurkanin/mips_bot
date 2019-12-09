@@ -50,6 +50,9 @@ SWITCH_MODE             = 0xffff00f0
 ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
 
+DIRECTION_SWITCH_FREQ   = 0x200
+DIRECTION_SWITCH_RESET   = 0x400
+HEADING_UPDATE_FREQ     = 0x2710
 CHECK_POWERUP_MAP_FREQUENCY  = 0x100
 BOT_VELOCITY            = 0xa
         
@@ -64,7 +67,7 @@ powerup_map:         .word 0:2  #holds length and a pointer to an array of power
 target_pos:          .word 0:2  #holds x and y position
 my_bot_color:        .word 0:1  #this is the color of our team
 arena_map:           .half 0:900
-
+heading_timer:   .word 0:1       #this allows it to update only periodically
 
 
 	
@@ -94,7 +97,8 @@ main:
 
 	lw      $t1, GET_TIMER($0)              #gets cycle number  
 	sw      $t1, last_powerup_check($0)     #store current cycle number to this.
-
+        sw      $t1, heading_timer($0)
+        
 	la      $t3, powerup_map
 	sw      $t3, GET_POWERUP_MAP($0)        #get initial powerup map
 
@@ -136,11 +140,13 @@ end_color_switch:
         
         
 #Check if we have a target acquired#######################################################
-        bne $s0, $0, has_no_target     #if we don't have a valid target, check the paint supply
+        bne     $s0, $0, has_no_target     #if we don't have a valid target, check the paint supply
         
         lw      $t1, GET_TIMER($0)      #get timer
-        and     $t1, $t1, 0x100         #check if this timer bit is 1 or 0
-        beqz    $t1, dont_update_heading
+        lw      $t2, heading_timer($0)  #get time of last heading change
+        add     $t2, $t2, HEADING_UPDATE_FREQ   #add the freq.
+        
+        blt     $t1, $t2, dont_update_heading
         la      $t0, target_pos
         lw      $a0, 0($t0)
         lw      $a1, 4($t0) 
@@ -373,7 +379,7 @@ got_no_powerups:
     # $a1 is y position
     # returns nothing but it drives to the target
 .data    
-LPF:    .float 0.999
+P_GAIN:    .float 0.5
 ONE:    .float 1.0
 .text        
 path_to_target:
@@ -391,24 +397,6 @@ path_to_target:
         add     $t2, $t2, 5     #x = (x*10) + 5
         add     $t3, $t3, 5     #y = (y*10) + 5
 
-        #These no-ops actually serve a purpose
-        #I use a stupid hack in a couple spots
-        #For timing. It relys on checking if the
-        #current time is a multiple of a power
-        #of 2 like 0x8
-        #so when there are a prime number of cycles
-        #in between checks of the timer, then
-        #it ensures that the timer will really get triggered every 8 times
-        
-
-
-        add     $0, $0, $0
-        add     $0, $0, $0
-        add     $0, $0, $0
-        add     $0, $0, $0
-        
-
-
         
         sub     $a0, $t2, $t0   #dx
         sub     $a1, $t3, $t1   #dy
@@ -420,7 +408,7 @@ path_to_target:
 #        mtc1    $t0, $f1        #load current angle
 #        cvt.s.w $f0, $f0        #desired angle: convert to floats
 #        cvt.s.w $f1, $f1        #current angle
-#        l.s    $f2, LPF        #.99
+#        l.s    $f2, P_GAIN        #.99
 #        l.s    $f3, ONE        #1       
 #        sub.s   $f4, $f3, $f2   #.01
 #        mul.s   $f0, $f0, $f4   #small weight on desired angle        
@@ -458,6 +446,8 @@ get_arena_map_index:
 chunkIH:    .space 48
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
 unhandled_str:    .asciiz "Unhandled interrupt type\n"
+bonk_counter: .word 0 #set timer to zero
+
 .ktext 0x80000180
 interrupt_handler:
 .set noat
@@ -508,19 +498,50 @@ bonk_interrupt:
 	add     $t0, $0, 1
 	sw      $t0, SWITCH_MODE($0)         #paint mode
 
-	li	$t0, 37
+        lw      $t0, ANGLE($0)
 
-        lw      $t1, GET_TIMER($0)      #get timer
-        and     $t1, $t1, 0x400         #check if this timer bit is 1 or 0
-        beqz    $t1, turn_right_on_bonk
-        neg     $t0, $t0
+        bgt     $t0, 45, check_if_less_than_135
+        #if(angle < 45)
+        li      $t0, 0  #round $t0 to 0 degrees
+        j       end_rounding_switch
+check_if_less_than_135: 
+        bgt     $t0, 135, check_if_less_than_225
+        #if(angle < 135)
+        li      $t0, 90  #round $t0 to 90 degrees
+        j       end_rounding_switch
+check_if_less_than_225: 
+        bgt     $t0, 225, check_if_less_than_315
+        #if(angle < 225)
+        li      $t0, 180  #round $t0
+        j       end_rounding_switch
+check_if_less_than_315: 
+        bgt     $t0, 315, check_if_less_than_405
+        #if(angle < 315)
+        li      $t0, 270  #round $t0
+        j       end_rounding_switch
+check_if_less_than_405: 
+        bgt     $t0, 405, end_rounding_switch
+        #if(angle < 405)
+        li      $t0, 0  #round $t0
+        j       end_rounding_switch
+        
+end_rounding_switch:        
+        li      $t2, 90
+        
+        lw      $t1, bonk_counter($0)
+        blt     $t1, DIRECTION_SWITCH_FREQ, turn_right_on_bonk
+        neg     $t2, $t2
 turn_right_on_bonk:
-        
-        
-	sw	$t0, ANGLE($0)
-	
-	li	$t0, 0
-	sw	$t0, ANGLE_CONTROL($0)
+        add     $t1, $t1, 1
+        blt     $t1, DIRECTION_SWITCH_RESET, dont_reset_bonk_counter
+        move    $t1, $0
+dont_reset_bonk_counter:
+
+        add     $t2, $t2, $t0
+        li	$t3, 1
+	sw	$t3, ANGLE_CONTROL($0)
+        sw      $t1, bonk_counter($0) #increment counter
+	sw	$t2, ANGLE($0)
 	
 	li	$t0, BOT_VELOCITY
 	sw	$t0, VELOCITY($0)
