@@ -44,14 +44,16 @@ TIMER_ACK               = 0xffff006c
 REQUEST_PUZZLE_INT_MASK = 0x800       ## Puzzle
 REQUEST_PUZZLE_ACK      = 0xffff00d8  ## Puzzle
 
+GET_INVENTORY           = 0xffff00e8
+        
 GET_PAINT_BUCKETS       = 0xffff00e4
 SWITCH_MODE             = 0xffff00f0
 
 ENABLE_PAINT_BRUSH      = 0xffff00f0
 GET_POWERUP_MAP         = 0xffff00e0
 
-DIRECTION_SWITCH_FREQ   = 0x200
-DIRECTION_SWITCH_RESET   = 0x400
+DIRECTION_SWITCH_FREQ   = 0x300 #these the magic numbers don fuck wit em
+DIRECTION_SWITCH_RESET   = 0x600
 HEADING_UPDATE_FREQ     = 0x2710
 CHECK_POWERUP_MAP_FREQUENCY  = 0x100
 BOT_VELOCITY            = 0xa
@@ -67,8 +69,8 @@ powerup_map:         .word 0:2  #holds length and a pointer to an array of power
 target_pos:          .word 0:2  #holds x and y position
 my_bot_color:        .word 0:1  #this is the color of our team
 arena_map:           .half 0:900
-heading_timer:   .word 0:1       #this allows it to update only periodically
-
+heading_timer:       .word 0:1       #this allows it to update only periodically
+inventory:            .space 164
 
 	
 .text
@@ -169,7 +171,6 @@ dont_update_heading:
         li      $s0, 0xDEADBEEF
         lw      $t1, GET_TIMER($0)      #get timer
         sw      $0, PICKUP_POWERUP($0)
-        sw      $0, USE_POWERUP($0)
 not_yet_at_the_target:
         j       check_paint_supply
 has_no_target:
@@ -209,7 +210,7 @@ check_powerup_map:
 	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
 	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-	blt 	$t1, $t0, check_next_thing      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+	blt 	$t1, $t0, check_inventory_for_powerup      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
 
@@ -228,14 +229,19 @@ check_powerup_map:
 	sw  	$v0, 0($t0)                     #set the current target as the closest powerup
 	sw	$v1, 4($t0)
 	add	$s0, $0, $0                     #signal that we have found a target
-	j	check_next_thing
+	j	check_inventory_for_powerup
 set_target_null:
 	li	$s0, 0xDEADBEEF		    	#signal that we have no target.
 
 	
-check_next_thing:
-	# Check something here #####################################
-        
+check_inventory_for_powerup:
+        la      $t0, inventory
+        sw      $t0, GET_INVENTORY($0)
+        lbu     $t0, 8($t0)
+        beqz    $t0, aint_got_no_powerup
+        sw      $0, USE_POWERUP($0)
+aint_got_no_powerup:    
+
         
 	j   	bot_loop
         
@@ -337,15 +343,21 @@ get_closest_powerup:
 
 	li 	$t3, 0			#t3 is the index in the array.
 	li	$t6, 0x00FFFFFF		#this is the distance to the closest powerup
-	
+        
+        lw      $t8, BOT_X($0)
+        lw      $t9, BOT_Y($0)
+        div     $t8, $t8, 10
+        div     $t9, $t9, 10
+        
+        
 iterate_over_powerups:			#This is a for loop. for(t3 = 0; t3 < t1; t3++)
 	bge     $t3, $t1, end_iterate_over_powerups
 
 	lhu	$t4, 0($t2)		#get x_pos (short) powerup_array[t3*12].x
 	lhu	$t5, 2($t2)		#get y_pos (short) powerup_array[t3*12].y
 
-	move	$a0, $t4
-	move	$a1, $t5
+	sub	$a0, $t4, $t8
+	sub	$a1, $t5, $t9
 
 	#im gunna do what called a pro-gamer move and not save my temporaries
 	jal	euclidean_dist
@@ -443,7 +455,7 @@ get_arena_map_index:
 
 ######### Interupts ############################################	
 .kdata
-chunkIH:    .space 48
+chunkIH:    .space 64
 non_intrpt_str:    .asciiz "Non-interrupt exception\n"
 unhandled_str:    .asciiz "Unhandled interrupt type\n"
 bonk_counter: .word 0 #set timer to zero
@@ -465,7 +477,11 @@ interrupt_handler:
         sw      $t3, 32($k0)
         sw      $t4, 36($k0)
         sw      $t5, 40($k0)
-        sw      $ra, 44($k0)
+        sw      $t6, 44($k0)
+        sw      $t7, 48($k0)
+        sw      $t8, 52($k0)
+        sw      $t9, 56($k0)        
+        sw      $ra, 60($k0)
         
         mfc0    $k0, $13             # Get Cause register
         srl     $a0, $k0, 2
@@ -593,7 +609,11 @@ done:
         lw      $t3, 32($k0)
         lw      $t4, 36($k0)
         lw      $t5, 40($k0)
-        lw      $ra, 44($k0)
+        lw      $t6, 44($k0)
+        lw      $t7, 48($k0)
+        lw      $t8, 52($k0)
+        lw      $t9, 56($k0)
+        lw      $ra, 60($k0)
 .set noat
         move    $at, $k1        # Restore $at
 .set at
