@@ -45,30 +45,24 @@ void path_to_target(int tx , int ty){
      [pix_x, pix_y] = get_robot_position();
      x = (10*x) + 5
      y = (10*y) + 5
+
+     dx = x - pix_x;
+     dy = y - pix_y;
+     hypot = sqrt(dx*dx + dy*dy)
+
+     cos = dx / hypot;
+     sin = dy / hypot;
+
+     pix_test_x = cos*BOT_VELOCITY + pix_x
+     pix_test_y = sin*BOT_VELOCITY + pix_y
+
+     tile_test_x = (int) (pix_test_x / 10)
+     tile_test_y = (int) (pix_test_y / 10)
      
      theta = atan(x - pix_x, y - pix_y);
-     
-     do{
-         next_pix_x = pix_x + BOT_VELOCITY*cos(theta)
-         next_pix_y = pix_y + BOT_VELOCITY*sin(theta);
-         tile_x = next_pix_x / 10;
-         tile_y = next_pix_y / 10;
 
-         if((arena[tile_x][tile_y] & 0x00FF)){
-             theta += 30 //try a bunch of values.
-             continue
-         }
-         else break
-     } while(1)
      set_angle_control_absolute();
      set_angle(theta)
+     
 }
 
-
-float cos(float t){
-      return 1 - (x^2 / 2) + (x^4 / 24);
-}
-
-float sin(float t){
-      return x - (x^3 / 6) + (x^5 / 120);
-}     

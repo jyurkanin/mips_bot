@@ -105,11 +105,11 @@ main:
         #this bit gets the color of the mybot
         lw      $t0, BOT_X($0)          #determine if we are in the top left or bottom right
         bne     $t0, 5, we_are_the_bottom_right
-        move    $s2, $0
+        li      $s2, 1
         sw      $s2, my_bot_color($0)    
         j       bot_loop
 we_are_the_bottom_right:
-        li      $s2, 1
+        li      $s2, 2
         sw      $s2, my_bot_color($0)
         
         
@@ -342,83 +342,25 @@ got_no_powerups:
     # $a0 is x position
     # $a1 is y position
     # returns nothing but it drives to the target
-path_to_target:
-        sub     $sp, $sp, 4
-        sw      $s0, 0($sp)
-        sw      $s1, 4($sp)
-        sw      $s2, 8($sp)
-        sw      $s3, 12($sp)
-        sw      $s4, 16($sp)
-        sw      $s5, 20($sp)
+path_to_target:        
+        lw      $t0, BOT_X($0)  #pix_x
+        lw      $t1, BOT_Y($0)  #pix_y
         
+        mul     $t2, $a0, 10    #(x*10)
+        mul     $t3, $a1, 10    #(y*10)
+        add     $t2, $t2, 5     #x = (x*10) + 5
+        add     $t3, $t3, 5     #y = (y*10) + 5
         
-        lw      $s0, BOT_X($0)  #pix_x
-        lw      $s1, BOT_Y($0)  #pix_y
-        
-        mul     $s1, $a0, 10    #(x*10)
-        mul     $s2, $a1, 10    #(y*10)
-        add     $s1, $s1, 5     #x = (x*10) + 5
-        add     $s2, $s2, 5     #y = (y*10) + 5
-        
-        sub     $s3, $s1, $t0   #dx
-        sub     $s4, $s2, $t1   #dy
-        
-        move    $a0, $s3
-        move    $a1, $s4
+        sub     $a0, $t2, $t0   #dx
+        sub     $a1, $t3, $t1   #dy
         
         jal     sb_arctan        
-        mov.s   $f30, $f31      #$f30 is theta
-
-        mtc1    $s0, $f10       #$f10 is pix_x but a float
-        mtc1    $s1, $f11       #$f11 is pix_y but a float
-        cvt.s.w $f10, $f10      #pix_x
-        cvt.s.w $f11, $f11      #pix_y
-
-        li      $t0, BOT_VELOCITY
-        mtc1    $t0, $f14       
-        cvt.s.w $f14, $f14      # $f14 = (int) BOT_VELOCITY
-
-        li      $t0, 10
-        mtc1    $t0, $f15       
-        cvt.s.w $f15, $f15      # $f14 = (int) BOT_VELOCITY
-
-        li      $t0, 30
-        mtc1    $t0, $f16       
-        cvt.s.w $f16, $f16      # $f14 = (int) BOT_VELOCITY
-
-while_arena_tile_has_obstacle:
-        mov.s   $f0, $f30       #move theta to the argument
-        jal     cos_degrees     #call cos(theta)
-        mul.s   $f12, $f31, $f14  #BOT_VELOCITY * cos(theta)
-        add.s   $f12, $f12, $f10          #next_pix_X = pix_x + BOT_VELOCITY * cos(theta)
-
-        mov.s   $f0, $f30       #move theta to the argument
-        jal     sin_degrees     #call sin(theta)
-        mul.s   $f13, $f31, $f14  #BOT_VELOCITY * sin(theta)      
-        add.s   $f13, $f13, $f11          #next_pix_y = pix_y + BOT_VELOCITY * sin(theta)      
-
-        div.s   $f12, $f12, $f15  #next_pix_x / 10
-        div.s   $f13, $f13, $f15  #next_pix_y / 10
-        cvt.w.s $f12, $f12      #(int) next_pix_x / 10
-        cvt.w.s $f13, $f13      #(int) next_pix_y / 10
-
-        mfc1    $a0, $f12       #tile_x = (int) next_pix_x / 10
-        mfc1    $a1, $f13       #tile_y = (int) next_pix_y / 10
-        jal     get_arena_map_index #arena_map[a0][a1]
-
-        and     $t0, $v0, 0x00FF #arena_map[a0][a1] && 0x00FF
-        beqz    $t0, break_arena_tile_has_no_obstacles     #if the tile has no obstacle, then its valid to move to, and we should do so and break this loop
-        add.s   $f30, $f30, $f16  #theta += 30    #try a bunch of stuff here.
-        j       while_arena_tile_has_obstacle
-break_arena_tile_has_no_obstacles:
+        cvt.w.s $f10, $f10 #theta
+        mfc1    $t1, $f10
+        
         li	$t0, 1          #set angle control to absolute
 	sw	$t0, ANGLE_CONTROL($0)
-        cvt.w.s $f30, $f30      #theta = (int) theta
-        mfc1    $t0, $f30
-        sw	$t0, ANGLE($0)
-        
-        jr      $ra
-
+        sw	$t1, ANGLE($0)
 
 
         
@@ -436,128 +378,6 @@ get_arena_map_index:
         lh      $v0, 0($t1)
         jr      $ra
 
-
-## NOTICE:
-# Sin(x) and Cos(x) use $f0 to pass x as an argument
-# And they return $f31
-        
-######## sin(x) ##################################
-# sin (degrees) function with 3 terms in taylor expansion
-# return x - (x^3 / 6) + (x^5 / 120);
-.data
-
-SIN_C2:  .float  6.0
-SIN_C3:  .float  120.0
-
-.text        
-
-sin_degrees:
-#	li	$v0, 0		# angle = 0;
-#     	mtc1	$a0, $f0        # load argument
-#	cvt.s.w $f0, $f0	# convert from ints to floats
-#        sub     $sp, $sp, 36
-#        swc1    $f0, 0($sp)
-#        swc1    $f1, 4($sp)
-#        swc1    $f2, 8($sp)
-#        swc1    $f3, 12($sp)
-#        swc1    $f4, 16($sp)
-#        swc1    $f5, 20($sp)
-#        swc1    $f6, 24($sp)
-#        swc1    $f7, 28($sp)
-#        swc1    $f8, 32($sp)
-
-        
-        #Convert from deg to rad
-        l.s	$f8, PI		# load PI
-	mul.s	$f0, $f8, $f0	# PI * v
-	l.s	$f7, F180	# load 180.0
-	div.s	$f0, $f0, $f7	# PI * value / 180
-        
-	mul.s	$f1, $f0, $f0	# v^^2
-	mul.s	$f2, $f1, $f0	# v^^3
-        
-	l.s	$f3, SIN_C2	# load 3.0
-	div.s 	$f3, $f2, $f3	# v^^3/6
-	sub.s	$f6, $f0, $f3	# v - v^^3/6
-        
-	mul.s	$f4, $f1, $f2	# v^^5
-	l.s	$f5, SIN_C3     # load 120.0
-	div.s 	$f5, $f4, $f5	# v^^5/120.0
-	add.s	$f31, $f6, $f5	# value = v - v^^3/6 + v^^5/120
-        
-#	cvt.w.s $f31, $f6	# convert value back to integer
-
-#        lwc1    $f0, 0($sp)
-#        lwc1    $f1, 4($sp)
-#        lwc1    $f2, 8($sp)
-#        lwc1    $f3, 12($sp)
-#        lwc1    $f4, 16($sp)
-#        lwc1    $f5, 20($sp)
-#        lwc1    $f6, 24($sp)
-#        lwc1    $f7, 28($sp)
-#        lwc1    $f8, 32($sp)
-#        add     $sp, $sp, 36
-	jr 	$ra
-
-
-######## cos(x) ##################################
-# cos (degrees) function with 3 terms in taylor expansion
-# return 1 - (x^2 / 2) + (x^5 / 24);
-.data
-
-COS_C1:  .float  1.0
-COS_C2:  .float  2.0
-COS_C3:  .float  24.0
-
-.text        
-
-cos_degrees:
-#        sub     $sp, $sp, 36
-#        swc1    $f0, 0($sp)
-#        swc1    $f1, 4($sp)
-#        swc1    $f2, 8($sp)
-#        swc1    $f3, 12($sp)
-#        swc1    $f4, 16($sp)
-#        swc1    $f5, 20($sp)
-#        swc1    $f6, 24($sp)
-#        swc1    $f7, 28($sp)
-#        swc1    $f8, 32($sp)
-        
-        #Convert from deg to rad
-        l.s	$f8, PI		# load PI
-	mul.s	$f0, $f8, $f0	# PI * v
-	l.s	$f7, F180	# load 180.0
-	div.s	$f0, $f0, $f7	# PI * value / 180
-
-        
-	mul.s	$f1, $f0, $f0	# v^^2
-	mul.s	$f2, $f1, $f1	# v^^4
-
-        l.s     $f0, COS_C1     # load 1.0
-	l.s	$f3, COS_C2	# load 2.0
-	div.s 	$f3, $f1, $f3	# v^^2/2
-	sub.s	$f6, $f0, $f3	# 1 - v^^2/2
-        
-	l.s	$f5, COS_C3     # load 24.0
-	div.s 	$f5, $f2, $f5	# v^^4/24.0
-	add.s	$f31, $f6, $f5	# value = 1 - v^^2/2 + v^^4/24
-        
-#	cvt.w.s $f31, $f6	# convert value back to integer
-#	mfc1	$f31, $f6       # move value to $f31
-        
-#        lwc1    $f0, 0($sp)
-#        lwc1    $f1, 4($sp)
-#        lwc1    $f2, 8($sp)
-#        lwc1    $f3, 12($sp)
-#        lwc1    $f4, 16($sp)
-#        lwc1    $f5, 20($sp)
-#        lwc1    $f6, 24($sp)
-#        lwc1    $f7, 28($sp)
-#        lwc1    $f8, 32($sp)
-#        add     $sp, $sp, 36
-	jr 	$ra
-
-        
 
 ######### Interupts ############################################	
 .kdata
