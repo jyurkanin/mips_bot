@@ -26,6 +26,9 @@ ANGLE_CONTROL           = 0xffff0018
 BOT_X                   = 0xffff0020
 BOT_Y                   = 0xffff0024
 
+PICKUP_POWERUP          = 0xffff00f4
+USE_POWERUP             = 0xffff00ec
+        
 GET_TIMER               = 0xffff001c
 GET_ARENA_MAP           = 0xffff00dc
 
@@ -133,12 +136,41 @@ end_color_switch:
         
         
 #Check if we have a target acquired#######################################################
-        bne $s0, $0, check_paint_supply     #if we don't have a valid target, check the paint supply
-        la  $t0, target_pos
-        lw  $a0, 0($t0)
-        lw  $a1, 4($t0) 
-        jal path_to_target                  #pathing subroutine
-            
+        bne $s0, $0, has_no_target     #if we don't have a valid target, check the paint supply
+        
+        lw      $t1, GET_TIMER($0)      #get timer
+        and     $t1, $t1, 0x100         #check if this timer bit is 1 or 0
+        beqz    $t1, dont_update_heading
+        la      $t0, target_pos
+        lw      $a0, 0($t0)
+        lw      $a1, 4($t0) 
+        jal     path_to_target                  #pathing subroutine
+dont_update_heading:
+        
+        #Check if we arrived at the target
+        
+        la      $t0, target_pos
+        lw      $a0, 0($t0)
+        lw      $a1, 4($t0) 
+        lw      $t0, BOT_X($0)              #This block just gets the current color we are standing on
+        lw      $t1, BOT_Y($0)
+        div     $t0, $t0, 10
+        div     $t1, $t1, 10
+        xor     $t2, $t0, $a0           #if these are equal, then $t2 is 0
+        xor     $t3, $t1, $a1           #if these equal, xor is 0
+        or      $t0, $t2, $t3           #if either are non zero, set $t0 to non zero
+        bnez    $t0, not_yet_at_the_target
+        li      $s0, 0xDEADBEEF
+        lw      $t1, GET_TIMER($0)      #get timer
+        sw      $0, PICKUP_POWERUP($0)
+        sw      $0, USE_POWERUP($0)
+not_yet_at_the_target:
+        j       check_paint_supply
+has_no_target:
+        li      $t0, 10
+        sw      $t0, VELOCITY($0)                        #set velocity to 0 since we have no paint left
+        #fall through
+        
 check_paint_supply:
 #check if we have enough paint #########################################################################
 	lw	$t1, GET_PAINT_BUCKETS($0)	    	#does what it says.
@@ -171,7 +203,7 @@ check_powerup_map:
 	lw  	$t2, last_powerup_check($0)     #gets the cycle number of the last update
 	add 	$t0, $t0, $t2                   #add last_powerup_check to last cycle number of update.
 
-	bgt 	$t1, $t0, check_next_thing      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
+	blt 	$t1, $t0, check_next_thing      #Compare the current cycle number to the (last_powerup_check+CHECK_POWERUP_MAP) and if cycle number is smaller, branch. Because we don't need to update the powerup map
 
 	sw  	$t1, last_powerup_check($0)     #stores the current cycle in it
 
@@ -240,7 +272,6 @@ euclidean_dist:
 # sb_arctan - computes the arctangent of y / x
 # $a0 - x
 # $a1 - y
-# returns the arctangent as $f31
 # -----------------------------------------------------------------------
 sb_arctan:
 	li	$v0, 0		# angle = 0;
@@ -274,13 +305,11 @@ pos_x:
 	l.s	$f8, PI		# load PI
 	div.s	$f6, $f6, $f8	# value / PI
 	l.s	$f7, F180	# load 180.0
-	mul.s	$f31, $f6, $f7	# 180.0 * value / PI
-        #originally was mul.s $f6, $f6, $f7
-        #but I changed it to return a float.
+	mul.s	$f6, $f6, $f7	# 180.0 * value / PI
         
-#	cvt.w.s $f6, $f6	# convert "delta" back to integer
-#	mfc1	$t0, $f6
-#	add	$v0, $v0, $t0	# angle += delta
+	cvt.w.s $f6, $f6	# convert "delta" back to integer
+	mfc1	$t0, $f6
+	add	$v0, $v0, $t0	# angle += delta
 	jr 	$ra
 
 
@@ -339,29 +368,74 @@ got_no_powerups:
 
 
 ######### pathing function #####################################
+    # This doesn't do anything intelligent. Im ashamed.
     # $a0 is x position
     # $a1 is y position
     # returns nothing but it drives to the target
-path_to_target:        
+.data    
+LPF:    .float 0.999
+ONE:    .float 1.0
+.text        
+path_to_target:
+        sub     $sp, $sp, 4
+        sw      $ra, 0($sp)
+        
         lw      $t0, BOT_X($0)  #pix_x
         lw      $t1, BOT_Y($0)  #pix_y
+
+        move    $t4, $t0
+        move    $t5, $t1
         
         mul     $t2, $a0, 10    #(x*10)
         mul     $t3, $a1, 10    #(y*10)
         add     $t2, $t2, 5     #x = (x*10) + 5
         add     $t3, $t3, 5     #y = (y*10) + 5
+
+        #These no-ops actually serve a purpose
+        #I use a stupid hack in a couple spots
+        #For timing. It relys on checking if the
+        #current time is a multiple of a power
+        #of 2 like 0x8
+        #so when there are a prime number of cycles
+        #in between checks of the timer, then
+        #it ensures that the timer will really get triggered every 8 times
+        
+
+
+        add     $0, $0, $0
+        add     $0, $0, $0
+        add     $0, $0, $0
+        add     $0, $0, $0
+        
+
+
         
         sub     $a0, $t2, $t0   #dx
         sub     $a1, $t3, $t1   #dy
-        
+
         jal     sb_arctan        
-        cvt.w.s $f10, $f10 #theta
-        mfc1    $t1, $f10
+
+#        lw      $t0, ANGLE($0)  #get current angle        
+#        mtc1    $v0, $f0        #load desired angle
+#        mtc1    $t0, $f1        #load current angle
+#        cvt.s.w $f0, $f0        #desired angle: convert to floats
+#        cvt.s.w $f1, $f1        #current angle
+#        l.s    $f2, LPF        #.99
+#        l.s    $f3, ONE        #1       
+#        sub.s   $f4, $f3, $f2   #.01
+#        mul.s   $f0, $f0, $f4   #small weight on desired angle        
+#        mul.s   $f1, $f1, $f2   #big weight on current angle
+#        add.s   $f2, $f1, $f0   #cancer = .9*curr_angle + .1*theta
+#        cvt.w.s $f2, $f2       
+#        mfc1    $v0, $f2
         
         li	$t0, 1          #set angle control to absolute
 	sw	$t0, ANGLE_CONTROL($0)
-        sw	$t1, ANGLE($0)
-
+        sw	$v0, ANGLE($0)
+        
+        lw      $ra, 0($sp)
+        add     $sp, $sp, 4
+        jr      $ra
 
         
 ######### get_arena_map_index ####################################
@@ -432,8 +506,17 @@ bonk_interrupt:
 	sw 	$0, BONK_ACK
 
 	add     $t0, $0, 1
-	sw      $t0, SWITCH_MODE($0)         #paint mode 
-	li	$t0, 67
+	sw      $t0, SWITCH_MODE($0)         #paint mode
+
+	li	$t0, 37
+
+        lw      $t1, GET_TIMER($0)      #get timer
+        and     $t1, $t1, 0x400         #check if this timer bit is 1 or 0
+        beqz    $t1, turn_right_on_bonk
+        neg     $t0, $t0
+turn_right_on_bonk:
+        
+        
 	sw	$t0, ANGLE($0)
 	
 	li	$t0, 0
@@ -496,46 +579,7 @@ done:
         eret
 
 
-	
-# Given Puzzle Code ################################################################################################################################################
-# bool solve(unsigned short *current_board, unsigned row, unsigned col, Puzzle* puzzle) {
-#     if (row >= GRIDSIZE || col >= GRIDSIZE) {
-#         bool done = board_done(current_board, puzzle);
-#         if (done) {
-#             copy_board(current_board,puzzle->board);
-#         }
-#
-#         return done;
-#     }
-#     current_board = increment_heap(current_board, puzzle);
-#
-#     bool changed;
-#     do {
-#         changed = rule1(current_board);
-#         changed |= rule2(current_board);
-#         //changed |= rule3(board); //rule3 not done
-#     } while (changed);
 
-#     //added:
-#     bool done = board_done(current_board, puzzle);
-#     if (done) {
-#         copy_board(current_board,puzzle->board);
-#     }
-#
-#
-#     short possibles = current_board[row*GRIDSIZE + col];
-#     for(char number = 0; number < GRIDSIZE; ++number) {
-#         if ((1 << number) & possibles) {
-#             current_board[row*GRIDSIZE + col] = 1 << number;
-#             unsigned next_row = ((col == GRIDSIZE-1) ? row + 1 : row);
-#             if (solve(current_board, next_row, (col + 1) % GRIDSIZE, puzzle)) {
-#                 return true;
-#             }
-#             current_board[row*GRIDSIZE + col] = possibles;
-#         }
-#     }
-#     return false;
-# }
 	
 solve_puzzle:
     sub     $sp, $sp, 36
@@ -589,9 +633,10 @@ solve_start_do:
     move $s6, $v0      # done
 
     move $a0, $s2      # current_board
-    jal rule2
 
-    or   $v0, $v0, $s6 # changed |= rule2(current_board);
+    #TODO - Check if this breaks code
+    #jal rule2
+    #or   $v0, $v0, $s6 # changed |= rule2(current_board);
 
     bne $v0, $0, solve_start_do # while (changed)
 
@@ -599,7 +644,6 @@ solve_start_do:
     move $a1, $s3     # puzzle
     jal board_done
 
-    beq $v0, $0, solve_board_not_done_after_dowhile  # if (done)
     move $s7, $v0     # save done
     move $a0, $s2     # current_board
     move $a1, $s3     # puzzle // same as puzzle->board
@@ -608,44 +652,6 @@ solve_start_do:
     move $v0, $s7     # $v0: done
     j   solve_done
 
-solve_board_not_done_after_dowhile:
-
-
-    mul $t0, $s0, $s7  # row*GRIDSIZE
-    add $t0, $t0, $s1  # row*GRIDSIZE + col
-    mul $t0, $t0, 2    # sizeof(unsigned short) * (row*GRIDSIZE + col)
-    add $s4, $t0, $s2  # &current_board[row*GRIDSIZE + col]
-    lhu $s6, 0($s4)    # possibles = current_board[row*GRIDSIZE + col]
-
-    li $s5, 0 # char number = 0
-solve_start_guess:
-    bge $s5, $s7, solve_start_guess_end # number < GRIDSIZE
-    li $t0, 1
-    sll $t1, $t0, $s5 # (1 << number)
-    and $t0, $t1, $s6 # (1 << number) & possibles
-    beq $t0, $0, solve_start_guess_else
-    sh  $t1, 0($s4)   # current_board[row*GRIDSIZE + col] = 1 << number;
-    
-    move $a0, $s2     # current_board
-    move $a1, $s0     # next_row = row
-    sub  $t0, $s7, 1  # GRIDSIZE-1
-    bne  $s1, $t0, solve_start_guess_same_row # col < GRIDSIZE // col==GRIDSIZE-1
-    addi $a1, $a1, 1  # row + 1
-solve_start_guess_same_row:
-    move $a2, $s1     # col
-    addu $a2, $a2, 1  # col + 1
-    divu $a2, $s7
-    mfhi $a2          # (col + 1) % GRIDSIZE
-    move $a3, $s3     # puzzle
-    jal solve_puzzle         # solve(current_board, next_row, (col + 1) % GRIDSIZE, puzzle)
-    
-    bne  $v0, $0, solve_done_true # if done {return true}
-    sh   $s6, 0($s4)  # current_board[row*GRIDSIZE + col] = possibles;
-solve_start_guess_else:
-    addi $s5, $s5, 1
-    j solve_start_guess
-
-solve_done_false:
 solve_start_guess_end:
     li  $v0, 0        # done = false
 
@@ -695,16 +701,13 @@ solve_done_true:
 # // }
 #a0: board
 rule1:
-        sub     $sp, $sp, 36
+        sub     $sp, $sp, 24
         sw      $ra, 0($sp)
         sw      $s0, 4($sp)
         sw      $s1, 8($sp)
         sw      $s2, 12($sp)
         sw      $s3, 16($sp)
         sw      $s4, 20($sp)
-        sw      $s5, 24($sp)
-        sw      $s6, 28($sp)
-        sw      $s7, 32($sp)
         li      $s0, GRIDSIZE                  # $s0: GRIDSIZE = 4
         move    $s1, $a0                # $s1: board
         li      $s2, 0                  # $s2: changed = false
@@ -723,19 +726,30 @@ r1_for_x_start:
         jal     has_single_bit_set
         beq     $v0, 0, r1_for_x_inc    # if(has_single_bit_set(value))
         li      $s5, 0                  # $s5: k = 0
+
+        #---- Custom code ------
+        #for k!=x
+        li      $t8, 0
+        mul     $t8, $s3, $s0           # $t0: y*GRIDSIZE
+        add     $t8, $t8, $s5           # $t0: y*GRIDSIZE + k
+        sll     $t8, $t8, 1             # $t0: 2*(y*GRIDSIZE + k)
+        add     $t8, $t8, $s1           # $t0: &board[y*GRIDSIZE+k]
+
+
+        #---- Custom code ------
+
 r1_for_k_start:
         bge     $s5, $s0, r1_for_k_end  # for: k < GRIDSIZE
         beq     $s5, $s4, r1_if_kx_end  # if (k != x)
-        mul     $t0, $s3, $s0           # $t0: y*GRIDSIZE
-        add     $t0, $t0, $s5           # $t0: y*GRIDSIZE + k
-        sll     $t0, $t0, 1             # $t0: 2*(y*GRIDSIZE + k)
-        add     $t0, $t0, $s1           # $t0: &board[y*GRIDSIZE+k]
-        lhu     $t1, 0($t0)             # $t1: board[y*GRIDSIZE + k]
+        #deleted old code from here
+        lhu     $t1, 0($t8)             # $t1: board[y*GRIDSIZE + k]
         and     $t2, $t1, $s6           # $t2: board[y*GRIDSIZE + k] & value
         beq     $t2, 0, r1_if_kx_end    # if (board[y*GRIDSIZE + k] & value)
         not     $t3, $s6                # $t3: ~value
         and     $t1, $t1, $t3           # $t1:  board[y*GRIDSIZE + k] & ~value
-        sh      $t1, 0($t0)             # board[y*GRIDSIZE + k] &= ~value
+        sh      $t1, 0($t8)             # board[y*GRIDSIZE + k] &= ~value
+
+        
         li      $s2, 1                  # changed = true
 r1_if_kx_end:   
         beq     $s5, $s3, r1_if_ky_end  # if (k != y)
@@ -752,6 +766,7 @@ r1_if_kx_end:
         li      $s2, 1                  # changed = true
 r1_if_ky_end:
         add     $s5, $s5, 1             # for: k++
+        add     $t8, $t8, 2
         j       r1_for_k_start
 r1_for_k_end:
 r1_for_x_inc:
@@ -770,10 +785,7 @@ r1_return:
         lw      $s2, 12($sp)
         lw      $s3, 16($sp)
         lw      $s4, 20($sp)
-        lw      $s5, 24($sp)
-        lw      $s6, 28($sp)
-        lw      $s7, 32($sp)
-        add     $sp, $sp, 36
+        add     $sp, $sp, 24
         jr      $ra
 
 # rule2 #####################################################
@@ -1136,18 +1148,22 @@ increment_heap:
 copy_board:
     li  $t0, GRIDSIZE
     mul $t0, $t0, $t0               # GRIDSIZE * GRIDSIZE
-    li  $t1, 0                      # i = 0
+    move  $t1, $a0                      # i = 0
+    move  $t2, $a1
+    li  $t4, 0
 ih_loop:
-    bge $t1, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
+    bge $t4, $t0, ih_done           # i < GRIDSIZE*GRIDSIZE
 
-    mul $t2, $t1, 2                 # i * sizeof(unsigned short)
-    add $t3, $a0, $t2               # &old_board[i]
-    lhu $t3, 0($t3)                 # old_board[i]
+    #mul $t2, $t1, 2                 # i * sizeof(unsigned short)
+    #add $t3, $a0, $t2               # &old_board[i]
+    lw $t3, 0($t1)                 # old_board[i]
 
-    add $t4, $a1, $t2               # &new_board[i]
-    sh  $t3, 0($t4)                 # new_board[i] = old_board[i]
+    #add $t4, $a1, $t2               # &new_board[i]
+    sw  $t3, 0($t2)                 # new_board[i] = old_board[i]
 
-    addi $t1, $t1, 1                # i++
+    addi $t1, $t1, 4                # i++
+    addi $t2, $t2, 4
+    addi $t4, $t4, 2
     j    ih_loop
 ih_done:
     move $v0, $a1

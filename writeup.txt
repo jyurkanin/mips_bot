@@ -61,8 +61,19 @@ void path_to_target(int tx , int ty){
      
      theta = atan(x - pix_x, y - pix_y);
 
+//p control was a terrible fucking idea. Fuck you
+//     curr_angle = get_current_angle();
+//     theta = .9*curr_angle + .1*theta //this is actually proportional gain velocity control
+     
      set_angle_control_absolute();
      set_angle(theta)
      
 }
 
+bonk_interrupt:
+        turn right 37 degrees.
+
+with no waiting between heading updates
+1498067 cycles to powerup
+617626 cycles to powerup
+333382 cycles to powerup

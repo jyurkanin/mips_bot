@@ -57,6 +57,7 @@ pos_x:
 	div.s	$f6, $f6, $f8	# value / PI
 	l.s	$f7, F180	# load 180.0
 	mul.s	$f6, $f6, $f7	# 180.0 * value / PI
+
 	cvt.w.s $f6, $f6	# convert "delta" back to integer
 	mfc1	$t0, $f6
 	add	$v0, $v0, $t0	# angle += delta
